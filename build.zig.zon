@@ -1,0 +1,13 @@
+.{
+    .name = .neural_network,
+    .version = "0.0.0",
+    .fingerprint = 0x6a1a73a3c58fb1c4,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "README.md",
+        "src",
+    },
+}
