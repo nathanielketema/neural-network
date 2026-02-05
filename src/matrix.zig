@@ -1,9 +1,9 @@
 const std = @import("std");
-const Io = std.Io;
-const Allocator = std.mem.Allocator;
-
 const assert = std.debug.assert;
 const testing = std.testing;
+
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
 
 pub fn Matrix(comptime T: type) type {
     return struct {
@@ -49,8 +49,8 @@ pub fn Matrix(comptime T: type) type {
             };
         }
 
-        pub fn init(allocator: Allocator, row: Row, col: Col) !Self {
-            const data = try allocator.alloc(T, row.value() * col.value());
+        pub fn init(gpa: Allocator, row: Row, col: Col) !Self {
+            const data = try gpa.alloc(T, row.value() * col.value());
 
             return .{
                 .data = data,
@@ -59,10 +59,10 @@ pub fn Matrix(comptime T: type) type {
             };
         }
 
-        pub fn deinit(matrix: *Self, allocator: Allocator) void {
+        pub fn deinit(matrix: *Self, gpa: Allocator) void {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             if (matrix.data.len > 0) {
-                allocator.free(matrix.data);
+                gpa.free(matrix.data);
             }
         }
 
