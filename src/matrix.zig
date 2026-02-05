@@ -62,7 +62,7 @@ pub fn Matrix(comptime T: type) type {
             }
         }
 
-        pub fn at(matrix: *Self, row: usize, col: usize) *T {
+        pub fn at(matrix: *const Self, row: usize, col: usize) *T {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             assert(row <= matrix.row.value());
             assert(col <= matrix.col.value());
@@ -85,7 +85,7 @@ pub fn Matrix(comptime T: type) type {
             const col = matrix.col.value();
             for (0..row) |r| {
                 try writer.print(
-                    "{any}\n",
+                    "{any:2}\n",
                     .{
                         matrix.data[r * col .. (r + 1) * col],
                     },
@@ -105,9 +105,55 @@ pub fn Matrix(comptime T: type) type {
     };
 }
 
-//pub fn matrix_add(comptime T: type, dest: *Matrix(T), a: *const Matrix(T), b: *const Matrix(T)) void {}
-//pub fn matrix_multiply(comptime T: type, dest: *Matrix(T), a: Matrix(T), b: *const Matrix(T)) void {}
-//pub fn matrix_copy(comptime T: type, dest: *Matrix(T), src: *const Matrix(T)) void {}
+pub fn matrix_add(
+    comptime T: type,
+    result: *Matrix(T),
+    a: *const Matrix(T),
+    b: *const Matrix(T),
+) void {
+    assert(a.row.value() == b.row.value());
+    assert(a.col.value() == b.col.value());
+    assert(result.row.value() == a.row.value());
+    assert(result.col.value() == a.col.value());
+
+    const row_count_a = a.row.value();
+    const col_count_b = a.col.value();
+    for (0..row_count_a) |r| {
+        for (0..col_count_b) |c| {
+            result.at(r, c).* = a.get(r, c) + b.get(r, c);
+        }
+    }
+}
+
+pub fn matrix_multiply(
+    comptime T: type,
+    result: *Matrix(T),
+    a: *const Matrix(T),
+    b: *const Matrix(T),
+) void {
+    assert(a.col.value() == b.row.value());
+    assert(result.row.value() == a.row.value());
+    assert(result.col.value() == b.col.value());
+
+    const row_count_a = a.row.value();
+    const col_count_b = b.col.value();
+    const col_count_a = a.col.value();
+    for (0..row_count_a) |i| {
+        for (0..col_count_b) |j| {
+            for (0..col_count_a) |k| {
+                result.at(i, j).* += a.get(i, k) * b.get(k, j);
+            }
+        }
+    }
+}
+
+pub fn matrix_copy(comptime T: type, dest: *Matrix(T), src: Matrix(T)) void {
+    assert(dest.data.len == src.data.len);
+    assert(dest.row.value() == src.row.value());
+    assert(dest.col.value() == src.col.value());
+
+    @memcpy(dest.data, src.data);
+}
 
 test Matrix {
     const io = testing.io;
@@ -125,7 +171,6 @@ test Matrix {
     const col: Matrix(f32).Col = .to_enum(3);
     assert(data.len == row.value() * col.value());
 
-    std.debug.print("New matrix\n", .{});
     var matrix: Matrix(f32) = .create(&data, row, col);
     try testing.expectEqual(5, matrix.get(1, 1));
     try testing.expectEqual(7, matrix.get(2, 0));
@@ -136,7 +181,6 @@ test Matrix {
     try matrix.print(stdout_writer);
     try stdout_writer.flush();
 
-    std.debug.print("New matrix\n", .{});
     var matrix_2: Matrix(f32) = try .init(allocator, row, col);
     defer matrix_2.deinit(allocator);
 
@@ -148,4 +192,69 @@ test Matrix {
 
     std.debug.print("Dimensions = {d} x {d}\n", .{ matrix.row.value(), matrix.col.value() });
     std.debug.print("data_count = {d}\n", .{matrix.data.len});
+}
+
+test "add" {
+    const allocator = testing.allocator;
+
+    const row: Matrix(f32).Row = .to_enum(3);
+    const col: Matrix(f32).Col = .to_enum(3);
+
+    var a: Matrix(f32) = try .init(allocator, row, col);
+    defer a.deinit(allocator);
+    a.fill(2);
+
+    var b: Matrix(f32) = try .init(allocator, row, col);
+    defer b.deinit(allocator);
+    b.fill(3);
+
+    var result: Matrix(f32) = try .init(allocator, row, col);
+    defer result.deinit(allocator);
+
+    matrix_add(f32, &result, &a, &b);
+
+    for (result.data) |val| {
+        try testing.expectEqual(5, val);
+    }
+}
+
+test "multiply" {
+    var data: [4096]u8 = undefined;
+
+    var fixed_buffer: std.heap.FixedBufferAllocator = .init(&data);
+    const fba = fixed_buffer.allocator();
+
+    var a_data = [_]f32{ 4, 2, 2, 1 };
+    var a: Matrix(f32) = .create(&a_data, .to_enum(2), .to_enum(2));
+
+    var b_data = [_]f32{ 0, 1, 2, 2, 1, 1 };
+    var b: Matrix(f32) = .create(&b_data, .to_enum(2), .to_enum(3));
+
+    var result: Matrix(f32) = try .init(fba, .to_enum(2), .to_enum(3));
+    defer result.deinit(fba);
+
+    matrix_multiply(f32, &result, &a, &b);
+
+    try testing.expectEqualSlices(f32, &[_]f32{4, 6, 10, 2, 3, 5}, result.data);
+}
+
+test "clone" {
+    var data: [4096]u8 = undefined;
+
+    var fixed_buffer: std.heap.FixedBufferAllocator = .init(&data);
+    const fba = fixed_buffer.allocator();
+
+    const row: Matrix(f32).Row = .to_enum(3);
+    const col: Matrix(f32).Col = .to_enum(3);
+
+    var a: Matrix(f32) = try .init(fba, row, col);
+    defer a.deinit(fba);
+    a.fill(23);
+
+    var b: Matrix(f32) = try .init(fba, row, col);
+    defer b.deinit(fba);
+
+    matrix_copy(f32, &b, a);
+
+    try testing.expectEqualSlices(f32, a.data, b.data);
 }
