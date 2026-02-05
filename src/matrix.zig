@@ -37,6 +37,10 @@ pub fn Matrix(comptime T: type) type {
         row: Row,
         col: Col,
 
+        comptime {
+            assert(@sizeOf(Self) == 24);
+        }
+
         pub fn create(data: []T, row: Row, col: Col) Self {
             return .{
                 .data = data,
@@ -231,6 +235,7 @@ test "multiply" {
     var b: Matrix(f32) = .create(&b_data, .to_enum(2), .to_enum(3));
 
     var result: Matrix(f32) = try .init(fba, .to_enum(2), .to_enum(3));
+    defer result.deinit(fba);
 
     matrix_multiply(f32, &result, &a, &b);
 
@@ -247,9 +252,11 @@ test "clone" {
     const col: Matrix(f32).Col = .to_enum(3);
 
     var a: Matrix(f32) = try .init(fba, row, col);
+    defer a.deinit(fba);
     a.fill(23);
 
     var b: Matrix(f32) = try .init(fba, row, col);
+    defer b.deinit(fba);
 
     matrix_copy(f32, &b, a);
 
