@@ -82,6 +82,18 @@ pub fn Matrix(comptime T: type) type {
             return matrix.data[row * matrix.col.value() + col];
         }
 
+        pub fn get_new_row(matrix: *const Self, gpa: Allocator, row: Row) !Self {
+            assert(matrix.data.len == matrix.row.value() * matrix.col.value());
+            assert(row.value() < matrix.row.value());
+
+            var new_matrix: Matrix(T) = try .init(gpa, .to_enum(1), matrix.col);
+            for (0..new_matrix.col.value()) |c| {
+                new_matrix.at(0, c).* = matrix.get(row.value(), c);
+            }
+
+            return new_matrix;
+        }
+
         pub fn print(matrix: *const Self, writer: *Io.Writer) !void {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
 
@@ -148,26 +160,6 @@ pub fn add(
     }
 }
 
-pub fn subtract(
-    comptime T: type,
-    result: *Matrix(T),
-    a: *const Matrix(T),
-    b: *const Matrix(T),
-) void {
-    assert(a.row.value() == b.row.value());
-    assert(a.col.value() == b.col.value());
-    assert(result.row.value() == a.row.value());
-    assert(result.col.value() == a.col.value());
-
-    const row_count_a = a.row.value();
-    const col_count_b = a.col.value();
-    for (0..row_count_a) |r| {
-        for (0..col_count_b) |c| {
-            result.at(r, c).* = a.get(r, c) + b.get(r, c);
-        }
-    }
-}
-
 pub fn multiply(
     comptime T: type,
     result: *Matrix(T),
@@ -215,6 +207,7 @@ test Matrix {
     assert(data.len == row.value() * col.value());
 
     var matrix: Matrix(f32) = .create(&data, row, col);
+
     try testing.expectEqual(5, matrix.get(1, 1));
     try testing.expectEqual(7, matrix.get(2, 0));
 
@@ -224,6 +217,14 @@ test Matrix {
     try matrix.print(stdout_writer);
     try stdout_writer.flush();
 
+    std.debug.print("-----------\n", .{});
+    var new_matrix = try matrix.get_new_row(allocator, .to_enum(0));
+    defer new_matrix.deinit(allocator);
+
+    try new_matrix.print(stdout_writer);
+    try stdout_writer.flush();
+    std.debug.print("-----------\n", .{});
+
     var matrix_2: Matrix(f32) = try .init(allocator, row, col);
     defer matrix_2.deinit(allocator);
 
@@ -232,6 +233,7 @@ test Matrix {
     matrix_2.fill_random(random);
     try matrix_2.print(stdout_writer);
     try stdout_writer.flush();
+    std.debug.print("-----------\n", .{});
 
     std.debug.print("Dimensions = {d} x {d}\n", .{ matrix.row.value(), matrix.col.value() });
     std.debug.print("data_count = {d}\n", .{matrix.data.len});
