@@ -82,7 +82,7 @@ pub fn Matrix(comptime T: type) type {
             return matrix.data[row * matrix.col.value() + col];
         }
 
-        pub fn get_new_row(matrix: *const Self, gpa: Allocator, row: Row) !Self {
+        pub fn row_as_matrix(matrix: *const Self, gpa: Allocator, row: Row) !Self {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             assert(row.value() < matrix.row.value());
 
@@ -218,7 +218,7 @@ test Matrix {
     try stdout_writer.flush();
 
     std.debug.print("-----------\n", .{});
-    var new_matrix = try matrix.get_new_row(allocator, .to_enum(0));
+    var new_matrix = try matrix.row_as_matrix(allocator, .to_enum(0));
     defer new_matrix.deinit(allocator);
 
     try new_matrix.print(stdout_writer);
