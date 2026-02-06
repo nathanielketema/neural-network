@@ -160,7 +160,7 @@ pub fn add(
     }
 }
 
-pub fn multiply(
+pub fn dot(
     comptime T: type,
     result: *Matrix(T),
     a: *const Matrix(T),
@@ -263,7 +263,7 @@ test "add" {
     }
 }
 
-test "multiply" {
+test "dot" {
     var data: [4096]u8 = undefined;
 
     var fixed_buffer: std.heap.FixedBufferAllocator = .init(&data);
@@ -278,7 +278,7 @@ test "multiply" {
     var result: Matrix(f32) = try .init(fba, .to_enum(2), .to_enum(3));
     defer result.deinit(fba);
 
-    multiply(f32, &result, &a, &b);
+    dot(f32, &result, &a, &b);
 
     try testing.expectEqualSlices(f32, &[_]f32{ 4, 6, 10, 2, 3, 5 }, result.data);
 }
