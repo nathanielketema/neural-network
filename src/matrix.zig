@@ -94,19 +94,21 @@ pub fn Matrix(comptime T: type) type {
             return new_matrix;
         }
 
-        pub fn print(matrix: Self, writer: *Io.Writer) !void {
+        pub fn print(matrix: Self, writer: *Io.Writer, matrix_name: []const u8) !void {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
 
             const row = matrix.row.value();
             const col = matrix.col.value();
+            try writer.print("{s} = {{ \n", .{matrix_name});
             for (0..row) |r| {
                 try writer.print(
-                    "{any:2}\n",
+                    "    {any:2}\n",
                     .{
                         matrix.data[r * col .. (r + 1) * col],
                     },
                 );
             }
+            try writer.print("}} \n", .{});
         }
 
         pub fn fill(matrix: *Self, value: T) void {
@@ -214,14 +216,14 @@ test Matrix {
     matrix.at(2, 1).* = 6;
     try testing.expectEqual(6, matrix.get(2, 1));
 
-    try matrix.print(stdout_writer);
+    try matrix.print(stdout_writer, "matrix");
     try stdout_writer.flush();
 
     std.debug.print("-----------\n", .{});
     var new_matrix = try matrix.row_as_matrix(allocator, .to_enum(0));
     defer new_matrix.deinit(allocator);
 
-    try new_matrix.print(stdout_writer);
+    try new_matrix.print(stdout_writer, "new_matrix");
     try stdout_writer.flush();
     std.debug.print("-----------\n", .{});
 
@@ -231,7 +233,7 @@ test Matrix {
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
     matrix_2.fill_random(random);
-    try matrix_2.print(stdout_writer);
+    try matrix_2.print(stdout_writer, "matrix_2");
     try stdout_writer.flush();
     std.debug.print("-----------\n", .{});
 
