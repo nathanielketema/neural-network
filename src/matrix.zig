@@ -66,7 +66,7 @@ pub fn Matrix(comptime T: type) type {
             }
         }
 
-        pub fn at(matrix: *const Self, row: usize, col: usize) *T {
+        pub fn at(matrix: Self, row: usize, col: usize) *T {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             assert(row <= matrix.row.value());
             assert(col <= matrix.col.value());
@@ -74,7 +74,7 @@ pub fn Matrix(comptime T: type) type {
             return &matrix.data[row * matrix.col.value() + col];
         }
 
-        pub fn get(matrix: *const Self, row: usize, col: usize) T {
+        pub fn get(matrix: Self, row: usize, col: usize) T {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             assert(row <= matrix.row.value());
             assert(col <= matrix.col.value());
@@ -82,7 +82,7 @@ pub fn Matrix(comptime T: type) type {
             return matrix.data[row * matrix.col.value() + col];
         }
 
-        pub fn row_as_matrix(matrix: *const Self, gpa: Allocator, row: Row) !Self {
+        pub fn row_as_matrix(matrix: Self, gpa: Allocator, row: Row) !Self {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             assert(row.value() < matrix.row.value());
 
@@ -94,7 +94,7 @@ pub fn Matrix(comptime T: type) type {
             return new_matrix;
         }
 
-        pub fn print(matrix: *const Self, writer: *Io.Writer) !void {
+        pub fn print(matrix: Self, writer: *Io.Writer) !void {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
 
             const row = matrix.row.value();
@@ -119,7 +119,7 @@ pub fn Matrix(comptime T: type) type {
             @memset(matrix.data, random.float(T));
         }
 
-        pub fn transpose(matrix: *const Self, gpa: Allocator) !Self {
+        pub fn transpose(matrix: Self, gpa: Allocator) !Self {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             var new_matrix: Matrix(T) = try .init(
                 gpa,
@@ -143,8 +143,8 @@ pub fn Matrix(comptime T: type) type {
 pub fn add(
     comptime T: type,
     result: *Matrix(T),
-    a: *const Matrix(T),
-    b: *const Matrix(T),
+    a: Matrix(T),
+    b: Matrix(T),
 ) void {
     assert(a.row.value() == b.row.value());
     assert(a.col.value() == b.col.value());
@@ -163,8 +163,8 @@ pub fn add(
 pub fn dot(
     comptime T: type,
     result: *Matrix(T),
-    a: *const Matrix(T),
-    b: *const Matrix(T),
+    a: Matrix(T),
+    b: Matrix(T),
 ) void {
     assert(a.col.value() == b.row.value());
     assert(result.row.value() == a.row.value());
@@ -256,7 +256,7 @@ test "add" {
     var result: Matrix(f32) = try .init(allocator, row, col);
     defer result.deinit(allocator);
 
-    add(f32, &result, &a, &b);
+    add(f32, &result, a, b);
 
     for (result.data) |val| {
         try testing.expectEqual(5, val);
@@ -270,15 +270,15 @@ test "dot" {
     const fba = fixed_buffer.allocator();
 
     var a_data = [_]f32{ 4, 2, 2, 1 };
-    var a: Matrix(f32) = .create(&a_data, .to_enum(2), .to_enum(2));
+    const a: Matrix(f32) = .create(&a_data, .to_enum(2), .to_enum(2));
 
     var b_data = [_]f32{ 0, 1, 2, 2, 1, 1 };
-    var b: Matrix(f32) = .create(&b_data, .to_enum(2), .to_enum(3));
+    const b: Matrix(f32) = .create(&b_data, .to_enum(2), .to_enum(3));
 
     var result: Matrix(f32) = try .init(fba, .to_enum(2), .to_enum(3));
     defer result.deinit(fba);
 
-    dot(f32, &result, &a, &b);
+    dot(f32, &result, a, b);
 
     try testing.expectEqualSlices(f32, &[_]f32{ 4, 6, 10, 2, 3, 5 }, result.data);
 }
