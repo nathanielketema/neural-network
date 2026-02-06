@@ -9,33 +9,46 @@ pub fn Matrix(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        pub const Row = enum(u32) {
+        pub const Row = enum(u16) {
             _,
 
-            pub fn value(row: Row) u32 {
+            pub fn value(row: Row) u16 {
                 return @intFromEnum(row);
             }
 
-            pub fn to_enum(row: u32) Row {
+            pub fn to_enum(row: u16) Row {
                 return @enumFromInt(row);
             }
         };
 
-        pub const Col = enum(u32) {
+        pub const Col = enum(u16) {
             _,
 
-            pub fn value(row: Col) u32 {
-                return @intFromEnum(row);
+            pub fn value(col: Col) u16 {
+                return @intFromEnum(col);
             }
 
-            pub fn to_enum(row: u32) Col {
-                return @enumFromInt(row);
+            pub fn to_enum(col: u16) Col {
+                return @enumFromInt(col);
+            }
+        };
+
+        pub const Stride = enum(u16) {
+            _,
+
+            pub fn value(stride: Stride) u16 {
+                return @intFromEnum(stride);
+            }
+
+            pub fn to_enum(stride: u16) Stride {
+                return @enumFromInt(stride);
             }
         };
 
         data: []T,
         row: Row,
         col: Col,
+        stride: Stride,
 
         comptime {
             assert(@sizeOf(Self) == 24);
@@ -46,6 +59,7 @@ pub fn Matrix(comptime T: type) type {
                 .data = data,
                 .row = row,
                 .col = col,
+                .stride = .to_enum(col.value()),
             };
         }
 
@@ -56,6 +70,7 @@ pub fn Matrix(comptime T: type) type {
                 .data = data,
                 .row = row,
                 .col = col,
+                .stride = .to_enum(col.value()),
             };
         }
 
@@ -68,27 +83,50 @@ pub fn Matrix(comptime T: type) type {
 
         pub fn at(matrix: Self, row: usize, col: usize) *T {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
-            assert(row <= matrix.row.value());
-            assert(col <= matrix.col.value());
+            assert(row < matrix.row.value());
+            assert(col < matrix.col.value());
 
-            return &matrix.data[row * matrix.col.value() + col];
+            return &matrix.data[row * matrix.stride.value() + col];
         }
 
         pub fn get(matrix: Self, row: usize, col: usize) T {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
-            assert(row <= matrix.row.value());
-            assert(col <= matrix.col.value());
+            assert(row < matrix.row.value());
+            assert(col < matrix.col.value());
 
-            return matrix.data[row * matrix.col.value() + col];
+            return matrix.data[row * matrix.stride.value() + col];
         }
 
         pub fn row_as_matrix(matrix: Self, gpa: Allocator, row: Row) !Self {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             assert(row.value() < matrix.row.value());
 
-            var new_matrix: Matrix(T) = try .init(gpa, .to_enum(1), matrix.col);
+            var new_matrix: Matrix(T) = try .init(
+                gpa,
+                .to_enum(1),
+                matrix.col,
+            );
             for (0..new_matrix.col.value()) |c| {
                 new_matrix.at(0, c).* = matrix.get(row.value(), c);
+            }
+
+            return new_matrix;
+        }
+
+        pub fn slice(matrix: Self, gpa: Allocator, stride: Stride) !Self {
+            assert(matrix.data.len == matrix.row.value() * matrix.col.value());
+            assert(stride.value() <= matrix.col.value());
+
+            var new_matrix = try Self.init(gpa, matrix.row, .to_enum(stride.value()));
+            new_matrix.stride = stride;
+
+            const row_count = new_matrix.row.value();
+            const col_count = new_matrix.col.value();
+
+            for (0..row_count) |r| {
+                for (0..col_count) |c| {
+                    new_matrix.at(r, c).* = matrix.get(r, c);
+                }
             }
 
             return new_matrix;
@@ -327,4 +365,31 @@ test "transpose" {
     defer b.deinit(gpa);
 
     try testing.expectEqualSlices(f32, a.data, b.data);
+}
+
+test "slice" {
+    const io = testing.io;
+    const allocator = testing.allocator;
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
+    const stdout_writer = &stdout_file_writer.interface;
+
+    var data = [_]f32{
+        1, 2, 3,
+        4, 5, 6,
+        7, 8, 9,
+    };
+    const row: Matrix(f32).Row = .to_enum(3);
+    const col: Matrix(f32).Col = .to_enum(3);
+
+    var matrix: Matrix(f32) = .create(&data, row, col);
+
+    var slice = try matrix.slice(allocator, .to_enum(1));
+    defer slice.deinit(allocator);
+
+    try matrix.print(stdout_writer, "matrix");
+    try stdout_writer.flush();
+
+    try slice.print(stdout_writer, "slice");
+    try stdout_writer.flush();
 }
