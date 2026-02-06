@@ -109,7 +109,7 @@ pub fn Matrix(comptime T: type) type {
     };
 }
 
-pub fn matrix_add(
+pub fn add(
     comptime T: type,
     result: *Matrix(T),
     a: *const Matrix(T),
@@ -129,7 +129,7 @@ pub fn matrix_add(
     }
 }
 
-pub fn matrix_multiply(
+pub fn multiply(
     comptime T: type,
     result: *Matrix(T),
     a: *const Matrix(T),
@@ -151,7 +151,7 @@ pub fn matrix_multiply(
     }
 }
 
-pub fn matrix_copy(comptime T: type, dest: *Matrix(T), src: Matrix(T)) void {
+pub fn copy(comptime T: type, dest: *Matrix(T), src: Matrix(T)) void {
     assert(dest.data.len == src.data.len);
     assert(dest.row.value() == src.row.value());
     assert(dest.col.value() == src.col.value());
@@ -215,7 +215,7 @@ test "add" {
     var result: Matrix(f32) = try .init(allocator, row, col);
     defer result.deinit(allocator);
 
-    matrix_add(f32, &result, &a, &b);
+    add(f32, &result, &a, &b);
 
     for (result.data) |val| {
         try testing.expectEqual(5, val);
@@ -237,7 +237,7 @@ test "multiply" {
     var result: Matrix(f32) = try .init(fba, .to_enum(2), .to_enum(3));
     defer result.deinit(fba);
 
-    matrix_multiply(f32, &result, &a, &b);
+    multiply(f32, &result, &a, &b);
 
     try testing.expectEqualSlices(f32, &[_]f32{4, 6, 10, 2, 3, 5}, result.data);
 }
@@ -258,7 +258,7 @@ test "clone" {
     var b: Matrix(f32) = try .init(fba, row, col);
     defer b.deinit(fba);
 
-    matrix_copy(f32, &b, a);
+    copy(f32, &b, a);
 
     try testing.expectEqualSlices(f32, a.data, b.data);
 }
