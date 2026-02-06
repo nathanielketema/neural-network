@@ -106,10 +106,49 @@ pub fn Matrix(comptime T: type) type {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
             @memset(matrix.data, random.float(T));
         }
+
+        pub fn transpose(matrix: *const Self, gpa: Allocator) !Self {
+            assert(matrix.data.len == matrix.row.value() * matrix.col.value());
+            var new_matrix: Matrix(T) = try .init(
+                gpa,
+                .to_enum(matrix.col.value()),
+                .to_enum(matrix.row.value()),
+            );
+
+            const row_count = new_matrix.row.value();
+            const col_count = new_matrix.col.value();
+            for (0..row_count) |r| {
+                for (0..col_count) |c| {
+                    new_matrix.at(r, c).* = matrix.get(c, r);
+                }
+            }
+
+            return new_matrix;
+        }
     };
 }
 
 pub fn add(
+    comptime T: type,
+    result: *Matrix(T),
+    a: *const Matrix(T),
+    b: *const Matrix(T),
+) void {
+    assert(a.row.value() == b.row.value());
+    assert(a.col.value() == b.col.value());
+    assert(result.row.value() == a.row.value());
+    assert(result.col.value() == a.col.value());
+
+    const row_count_a = a.row.value();
+    const col_count_b = a.col.value();
+    for (0..row_count_a) |r| {
+        for (0..col_count_b) |c| {
+            result.at(r, c).* = a.get(r, c) + b.get(r, c);
+        }
+    }
+}
+
+pub fn subtract(
     comptime T: type,
     result: *Matrix(T),
     a: *const Matrix(T),
@@ -239,7 +278,7 @@ test "multiply" {
 
     multiply(f32, &result, &a, &b);
 
-    try testing.expectEqualSlices(f32, &[_]f32{4, 6, 10, 2, 3, 5}, result.data);
+    try testing.expectEqualSlices(f32, &[_]f32{ 4, 6, 10, 2, 3, 5 }, result.data);
 }
 
 test "clone" {
@@ -259,6 +298,29 @@ test "clone" {
     defer b.deinit(fba);
 
     copy(f32, &b, a);
+
+    try testing.expectEqualSlices(f32, a.data, b.data);
+}
+
+test "transpose" {
+    var data: [4096]u8 = undefined;
+
+    var fixed_buffer: std.heap.FixedBufferAllocator = .init(&data);
+
+    const gpa = fixed_buffer.allocator();
+
+    const row: Matrix(f32).Row = .to_enum(3);
+    const col: Matrix(f32).Col = .to_enum(3);
+
+    var a: Matrix(f32) = try .init(gpa, row, col);
+    defer a.deinit(gpa);
+    a.fill(2);
+
+    var a_transpose = try a.transpose(gpa);
+    defer a_transpose.deinit(gpa);
+
+    var b = try a_transpose.transpose(gpa);
+    defer b.deinit(gpa);
 
     try testing.expectEqualSlices(f32, a.data, b.data);
 }
