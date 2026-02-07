@@ -113,22 +113,22 @@ pub fn Matrix(comptime T: type) type {
             return new_matrix;
         }
 
-        pub fn slice(matrix: Self, gpa: Allocator, stride: Stride) !Self {
+        pub fn slice(matrix: Self, gpa: Allocator, start: usize, stride: Stride) !Self {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
-            assert(stride.value() < matrix.data.len);
+            assert(start < matrix.col.value());
+            assert(stride.value() <= matrix.col.value());
+            assert(stride.value() > 0);
 
-            var new_matrix = try Self.init(gpa, matrix.row, .to_enum(stride.value()));
-            new_matrix.stride = stride;
+            const row_count = matrix.row.value();
+            const col_count: u16 = @intCast(1 + (matrix.col.value() - start - 1) / stride.value());
 
-            const row_count = new_matrix.row.value();
-            const col_count = new_matrix.col.value();
-
+            var new_matrix: Self = try .init(gpa, matrix.row, .to_enum(col_count));
             for (0..row_count) |r| {
                 for (0..col_count) |c| {
-                    new_matrix.at(r, c).* = matrix.get(r, c);
+                    const source_col = start + (c * stride.value());
+                    new_matrix.at(r, c).* = matrix.get(r, source_col);
                 }
             }
-
             return new_matrix;
         }
 
@@ -383,7 +383,7 @@ test "slice" {
 
     var matrix: Matrix(f32) = .create(&data, row, col);
 
-    var slice = try matrix.slice(allocator, .to_enum(1));
+    var slice = try matrix.slice(allocator, 1, .to_enum(3));
     defer slice.deinit(allocator);
 
     try matrix.print(stdout_writer, "matrix");
