@@ -137,7 +137,7 @@ pub fn Matrix(comptime T: type) type {
 
             const row = matrix.row.value();
             const col = matrix.col.value();
-            try writer.print("{s} = {{ \n", .{matrix_name});
+            try writer.print("{s}:\n", .{matrix_name});
             for (0..row) |r| {
                 try writer.print(
                     "    {any:2}\n",
@@ -146,7 +146,7 @@ pub fn Matrix(comptime T: type) type {
                     },
                 );
             }
-            try writer.print("}} \n", .{});
+            try writer.print("\n", .{});
         }
 
         pub fn fill(matrix: *Self, value: T) void {
