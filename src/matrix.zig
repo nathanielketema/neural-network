@@ -255,14 +255,12 @@ test Matrix {
     try testing.expectEqual(6, matrix.get(2, 1));
 
     try matrix.print(stdout_writer, "matrix");
-    try stdout_writer.flush();
 
     std.debug.print("-----------\n", .{});
     var new_matrix = try matrix.row_as_matrix(allocator, .to_enum(0));
     defer new_matrix.deinit(allocator);
 
     try new_matrix.print(stdout_writer, "new_matrix");
-    try stdout_writer.flush();
     std.debug.print("-----------\n", .{});
 
     var matrix_2: Matrix(f32) = try .init(allocator, row, col);
@@ -272,11 +270,12 @@ test Matrix {
     const random = prng.random();
     matrix_2.fill_random(random);
     try matrix_2.print(stdout_writer, "matrix_2");
-    try stdout_writer.flush();
     std.debug.print("-----------\n", .{});
 
     std.debug.print("Dimensions = {d} x {d}\n", .{ matrix.row.value(), matrix.col.value() });
     std.debug.print("data_count = {d}\n", .{matrix.data.len});
+
+    try stdout_writer.flush();
 }
 
 test "add" {
@@ -388,7 +387,6 @@ test "slice" {
     defer slice.deinit(allocator);
 
     try matrix.print(stdout_writer, "matrix");
-    try stdout_writer.flush();
 
     try slice.print(stdout_writer, "slice");
     try stdout_writer.flush();
