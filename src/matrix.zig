@@ -115,7 +115,7 @@ pub fn Matrix(comptime T: type) type {
 
         pub fn slice(matrix: Self, gpa: Allocator, stride: Stride) !Self {
             assert(matrix.data.len == matrix.row.value() * matrix.col.value());
-            assert(stride.value() <= matrix.col.value());
+            assert(stride.value() < matrix.data.len);
 
             var new_matrix = try Self.init(gpa, matrix.row, .to_enum(stride.value()));
             new_matrix.stride = stride;
