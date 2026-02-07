@@ -19,26 +19,19 @@ pub const Activation = enum {
     }
 };
 
-pub const Layer = struct {
-    weights: Matrix,
-    biases: Matrix,
-    activation: Activation,
+pub const NeuralNetwork = struct {
+    weights: []Matrix,
+    biases: []Matrix,
+    activations: []Matrix,
+    activation_fn: Activation,
+    learning_rate: f32,
+    eps: f32,
 
-    // init()
-    // deinit()
-    // forward()
+    //pub fn forward(self: *NeuralNetwork, input: Matrix) !Matrix
+    //pub fn backward(self: *NeuralNetwork, target: Matrix) !void
+    //pub fn train(self: *NeuralNetwork, input: Matrix, target: Matrix) !f32
+    //pub fn predict(self: *NeuralNetwork, input: Matrix) !Matrix  // forward without caching
+    //pub fn print()
 };
 
-pub const Network = struct {
-    layers: []Layer,
-    learning_rate: f32 = 1e-2,
-    eps: f32 = 1e-8,
-
-    // init()
-    // deinit()
-    // forward()
-    // train()
-    // predict()
-};
-
-//pub fn cost(actual: Matrix, predicted: Matrix) f32 {}
+//pub fn cost(predicted: Matrix, actual: Matrix) f32 {}
