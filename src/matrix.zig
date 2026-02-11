@@ -72,6 +72,14 @@ pub fn Matrix(comptime T: type) type {
             return init_from_slice(data, row, col);
         }
 
+        inline fn index(matrix: Self, row: usize, col: usize) usize {
+            assert(matrix.data.len >= matrix.row.value() * matrix.stride.value());
+            assert(row < matrix.row.value());
+            assert(col < matrix.col.value());
+
+            return row * matrix.stride.value() + col;
+        }
+
         pub fn deinit(matrix: *Self, gpa: Allocator) void {
             assert(matrix.data.len >= matrix.row.value() * matrix.stride.value());
             if (matrix.data.len > 0) {
@@ -84,7 +92,7 @@ pub fn Matrix(comptime T: type) type {
             assert(row < matrix.row.value());
             assert(col < matrix.col.value());
 
-            return &matrix.data[row * matrix.stride.value() + col];
+            return &matrix.data[matrix.index(row, col)];
         }
 
         pub fn get(matrix: Self, row: usize, col: usize) T {
@@ -92,7 +100,7 @@ pub fn Matrix(comptime T: type) type {
             assert(row < matrix.row.value());
             assert(col < matrix.col.value());
 
-            return matrix.data[row * matrix.stride.value() + col];
+            return matrix.data[matrix.index(row, col)];
         }
 
         pub fn copy_row(matrix: Self, gpa: Allocator, row: Row) !Self {
