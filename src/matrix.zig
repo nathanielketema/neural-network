@@ -10,6 +10,15 @@ pub fn Matrix(comptime T: type) type {
     return struct {
         const Self = @This();
 
+        data: []T,
+        row: Row,
+        col: Col,
+        stride: Stride,
+
+        comptime {
+            assert(@sizeOf(Self) == 24);
+        }
+
         pub const Row = enum(u16) {
             _,
 
@@ -46,14 +55,6 @@ pub fn Matrix(comptime T: type) type {
             }
         };
 
-        data: []T,
-        row: Row,
-        col: Col,
-        stride: Stride,
-
-        comptime {
-            assert(@sizeOf(Self) == 24);
-        }
 
         /// No need to call deinit as caller owns memory
         pub fn init_from_slice(data: []T, row: usize, col: usize) Self {
@@ -290,6 +291,17 @@ test Matrix {
     std.debug.print("data_count = {d}\n", .{matrix.data.len});
 
     try stdout_writer.flush();
+}
+
+test "get and ptr access same element" {
+    var matrix = try Matrix(i32).init(testing.allocator, 2, 2);
+    defer matrix.deinit(testing.allocator);
+    
+    matrix.ptr(.at(0), .at(0)).* = 42;
+    matrix.ptr(.at(1), .at(1)).* = 99;
+    
+    try testing.expectEqual(42, matrix.get(.at(0), .at(0)));
+    try testing.expectEqual(99, matrix.get(.at(1), .at(1)));
 }
 
 test "add" {
