@@ -5,415 +5,331 @@ const testing = std.testing;
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-/// Matrix is limited to dimensions 2^16 by 2^16
+/// Matrix is capped to 2^16 by 2^16 dimension
 pub fn Matrix(comptime T: type) type {
     return struct {
         const Self = @This();
 
         data: []T,
-        row: Row,
-        col: Col,
-        stride: Stride,
+        shape: Shape,
+        stride: u16,
 
         comptime {
             assert(@sizeOf(Self) == 24);
         }
 
-        pub const Row = enum(u16) {
-            _,
+        pub const Shape = struct {
+            row: u16,
+            col: u16,
 
-            pub fn val(row: Row) u16 {
-                return @intFromEnum(row);
-            }
+            pub fn init(row: usize, col: usize) Shape {
+                const upper_bound = std.math.pow(usize, 2, @typeInfo(u16).int.bits);
+                assert(row < upper_bound and col < upper_bound);
 
-            pub fn at(row: anytype) Row {
-                return @enumFromInt(row);
-            }
-        };
-
-        pub const Col = enum(u16) {
-            _,
-
-            pub fn val(col: Col) u16 {
-                return @intFromEnum(col);
-            }
-
-            pub fn at(col: anytype) Col {
-                return @enumFromInt(col);
+                return .{
+                    .row = @intCast(row),
+                    .col = @intCast(col),
+                };
             }
         };
 
-        pub const Stride = enum(u16) {
-            _,
+        pub const SubmatrixOptions = struct {
+            start_col: usize,
+            stride: usize,
 
-            pub fn val(stride: Stride) u16 {
-                return @intFromEnum(stride);
-            }
-
-            pub fn at(stride: anytype) Stride {
-                return @enumFromInt(stride);
+            pub fn validate(options: SubmatrixOptions, cols: usize) void {
+                assert(options.start_col < cols);
+                assert(options.stride <= cols);
+                assert(options.stride > 0);
             }
         };
-
 
         /// No need to call deinit as caller owns memory
-        pub fn init_from_slice(data: []T, row: usize, col: usize) Self {
+        pub fn init_from_slice(data: []T, shape: Shape) Self {
             return .{
                 .data = data,
-                .row = .at(row),
-                .col = .at(col),
-                .stride = .at(col),
+                .shape = shape,
+                .stride = shape.col,
             };
         }
 
-        /// Caller must call deinit
-        pub fn init(gpa: Allocator, row: usize, col: usize) !Self {
-            const data = try gpa.alloc(T, row * col);
+        /// Caller must free memory using deinit()
+        pub fn init(gpa: Allocator, shape: Shape) !Self {
+            const data = try gpa.alloc(T, shape.row * shape.col);
+            errdefer gpa.free(data);
 
-            return init_from_slice(data, row, col);
-        }
-
-        inline fn index(matrix: Self, row: usize, col: usize) usize {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
-            assert(row < matrix.row.val());
-            assert(col < matrix.col.val());
-
-            return row * matrix.stride.val() + col;
+            return init_from_slice(data, shape);
         }
 
         pub fn deinit(matrix: *Self, gpa: Allocator) void {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
+            matrix.assert_matrix();
+
             if (matrix.data.len > 0) {
                 gpa.free(matrix.data);
             }
         }
 
-        pub fn ptr(matrix: Self, row: Row, col: Col) *T {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
-            assert(row.val() < matrix.row.val());
-            assert(col.val() < matrix.col.val());
-
-            return &matrix.data[matrix.index(row.val(), col.val())];
+        inline fn assert_matrix(matrix: Self) void {
+            assert(matrix.data.len >= matrix.shape.row * matrix.stride);
         }
 
-        pub fn get(matrix: Self, row: Row, col: Col) T {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
-            assert(row.val() < matrix.row.val());
-            assert(col.val() < matrix.col.val());
-
-            return matrix.data[matrix.index(row.val(), col.val())];
+        inline fn assert_shape(matrix: Self, row: usize, col: usize) void {
+            assert(matrix.data.len >= matrix.shape.row * matrix.stride);
+            assert(row < matrix.shape.row);
+            assert(col < matrix.shape.col);
         }
 
-        pub fn copy_row(matrix: Self, gpa: Allocator, row: Row) !Self {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
-            assert(row.val() < matrix.row.val());
+        inline fn index(matrix: Self, row: usize, col: usize) usize {
+            matrix.assert_matrix();
+            matrix.assert_shape(row, col);
+            return row * matrix.stride + col;
+        }
 
-            var new_matrix: Matrix(T) = try .init(gpa, 1, matrix.col.val());
-            for (0..new_matrix.col.val()) |c| {
-                const col = Col.at(c);
-                new_matrix.ptr(.at(0), col).* = matrix.get(row, col);
+        pub fn ptr(matrix: *Self, row: usize, col: usize) *T {
+            matrix.assert_matrix();
+            matrix.assert_shape(row, col);
+            return &matrix.data[matrix.index(row, col)];
+        }
+
+        pub fn at(matrix: Self, row: usize, col: usize) T {
+            matrix.assert_matrix();
+            matrix.assert_shape(row, col);
+            return matrix.data[matrix.index(row, col)];
+        }
+
+        pub fn copy_row(matrix: Self, gpa: Allocator, row: usize) !Self {
+            matrix.assert_matrix();
+            assert(row < matrix.shape.row);
+
+            var new_matrix: Matrix(T) = try .init(gpa, Shape.init(1, matrix.shape.col));
+            errdefer new_matrix.deinit(gpa);
+
+            for (0..matrix.shape.col) |c| {
+                new_matrix.ptr(0, c).* = matrix.at(row, c);
             }
 
             return new_matrix;
         }
 
-        pub fn copy_submatrix(matrix: Self, gpa: Allocator, start: usize, stride: Stride) !Self {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
-            assert(start < matrix.col.val());
-            assert(stride.val() <= matrix.col.val());
-            assert(stride.val() > 0);
+        pub fn copy_submatrix(matrix: Self, gpa: Allocator, options: SubmatrixOptions) !Self {
+            matrix.assert_matrix();
+            options.validate(matrix.shape.col);
 
-            const row_count = matrix.row.val();
-            const col_count = 1 + (matrix.col.val() - start - 1) / stride.val();
+            const new_col = 1 + (matrix.shape.col - options.start_col - 1) / options.stride;
 
-            var new_matrix: Self = try .init(gpa, matrix.row.val(), col_count);
-            for (0..row_count) |r| {
-                const row = Row.at(r);
-                for (0..col_count) |c| {
-                    const col = Col.at(c);
-                    const source_col = Col.at(start + (c * stride.val()));
-                    new_matrix.ptr(row, col).* = matrix.get(row, source_col);
+            var new_matrix: Self = try .init(gpa, Shape.init(matrix.shape.row, new_col));
+            errdefer new_matrix.deinit(gpa);
+
+            for (0..matrix.shape.row) |r| {
+                for (0..new_col) |c| {
+                    const src_new_col = options.start_col + (c * options.stride);
+                    new_matrix.ptr(r, c).* = matrix.at(r, src_new_col);
                 }
             }
             return new_matrix;
         }
 
-        pub fn print(matrix: Self, writer: *Io.Writer, matrix_name: []const u8) !void {
-            const row = matrix.row.val();
-            const col = matrix.col.val();
-            const stride = matrix.stride.val();
-            try writer.print("{s}:\n", .{matrix_name});
-            for (0..row) |r| {
-                try writer.print(
-                    "    {any:2}\n",
-                    .{
-                        matrix.data[r * stride .. (r * stride) + col],
-                    },
-                );
+        pub fn copy_transpose(matrix: Self, gpa: Allocator) !Self {
+            matrix.assert_matrix();
+
+            var new_matrix: Matrix(T) = try .init(gpa, Shape.init(
+                matrix.shape.col,
+                matrix.shape.row,
+            ));
+            errdefer new_matrix.deinit(gpa);
+
+            for (0..new_matrix.shape.row) |r| {
+                for (0..new_matrix.shape.col) |c| {
+                    new_matrix.ptr(r, c).* = matrix.at(c, r);
+                }
             }
-            try writer.print("\n", .{});
+
+            return new_matrix;
         }
 
         pub fn fill(matrix: *Self, value: T) void {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
+            matrix.assert_matrix();
             @memset(matrix.data, value);
         }
 
         pub fn fill_random(matrix: *Self, random: std.Random) void {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
+            matrix.assert_matrix();
 
-            const row_count = matrix.row.val();
-            const col_count = matrix.col.val();
-
-            for (0..row_count) |r| {
-                const row = Row.at(r);
-                for (0..col_count) |c| {
-                    const col = Col.at(c);
-                    matrix.ptr(row, col).* = random.float(T);
+            for (0..matrix.shape.row) |r| {
+                for (0..matrix.shape.col) |c| {
+                    matrix.ptr(r, c).* = random.float(T);
                 }
             }
         }
 
-        pub fn copy_transpose(matrix: Self, gpa: Allocator) !Self {
-            assert(matrix.data.len >= matrix.row.val() * matrix.stride.val());
-            var new_matrix: Matrix(T) = try .init(gpa, matrix.col.val(), matrix.row.val());
+        pub fn scale(matrix: *Self, scalar: f32) void {
+            matrix.assert_matrix();
 
-            const row_count = new_matrix.row.val();
-            const col_count = new_matrix.col.val();
-            for (0..row_count) |r| {
-                const row = Row.at(r);
-                const old_col = Col.at(r);
-                for (0..col_count) |c| {
-                    const col = Col.at(c);
-                    const old_row = Row.at(c);
-                    new_matrix.ptr(row, col).* = matrix.get(old_row, old_col);
+            for (0..matrix.shape.row) |r| {
+                for (0..matrix.shape.col) |c| {
+                    matrix.ptr(r, c).* = scalar * matrix.at(r, c);
                 }
             }
+        }
 
-            return new_matrix;
+        pub fn add(result: *Self, a: Self, b: Self) void {
+            assert(a.shape.row == b.shape.row);
+            assert(a.shape.col == b.shape.col);
+            assert(result.shape.row == a.shape.row);
+            assert(result.shape.col == a.shape.col);
+
+            for (0..a.shape.row) |r| {
+                for (0..b.shape.col) |c| {
+                    result.ptr(r, c).* = a.at(r, c) + b.at(r, c);
+                }
+            }
+        }
+
+        pub fn mul(result: *Self, a: Self, b: Self) void {
+            assert(a.shape.col == b.shape.row);
+            assert(result.shape.row == a.shape.row);
+            assert(result.shape.col == b.shape.col);
+
+            for (0..a.shape.row) |i| {
+                for (0..b.shape.col) |j| {
+                    for (0..a.shape.col) |k| {
+                        result.ptr(i, j).* += a.at(i, k) * b.at(k, j);
+                    }
+                }
+            }
+        }
+
+        pub fn copy(dest: *Self, src: Self) void {
+            assert(dest.data.len == src.data.len);
+            assert(dest.shape.row == src.shape.row);
+            assert(dest.shape.col == src.shape.col);
+
+            @memcpy(dest.data, src.data);
+        }
+
+        pub fn print(matrix: Self, writer: *Io.Writer, matrix_name: []const u8) !void {
+            matrix.assert_matrix();
+
+            try writer.print("{s}:\n", .{matrix_name});
+            for (0..matrix.shape.row) |r| {
+                const start = r * matrix.stride;
+                const end = start + matrix.shape.col;
+                try writer.print("    {any:2}\n", .{matrix.data[start..end]});
+            }
+            try writer.print("\n", .{});
+
+            try writer.flush();
         }
     };
-}
-
-pub fn add(
-    comptime T: type,
-    result: *Matrix(T),
-    a: Matrix(T),
-    b: Matrix(T),
-) void {
-    assert(a.row.val() == b.row.val());
-    assert(a.col.val() == b.col.val());
-    assert(result.row.val() == a.row.val());
-    assert(result.col.val() == a.col.val());
-
-    const row_count_a = a.row.val();
-    const col_count_b = a.col.val();
-    for (0..row_count_a) |r| {
-        const row = Matrix(T).Row.at(r);
-        for (0..col_count_b) |c| {
-            const col = Matrix(T).Col.at(c);
-            result.ptr(row, col).* = a.get(row, col) + b.get(row, col);
-        }
-    }
-}
-
-pub fn mul(
-    comptime T: type,
-    result: *Matrix(T),
-    a: Matrix(T),
-    b: Matrix(T),
-) void {
-    assert(a.col.val() == b.row.val());
-    assert(result.row.val() == a.row.val());
-    assert(result.col.val() == b.col.val());
-
-    const row_count_a = a.row.val();
-    const col_count_b = b.col.val();
-    const col_count_a = a.col.val();
-    for (0..row_count_a) |i| {
-        const row = Matrix(T).Row.at(i);
-        for (0..col_count_b) |j| {
-            const col = Matrix(T).Col.at(j);
-            for (0..col_count_a) |k| {
-                result.ptr(row, col).* += a.get(row, .at(k)) * b.get(.at(k), col);
-            }
-        }
-    }
-}
-
-pub fn copy(comptime T: type, dest: *Matrix(T), src: Matrix(T)) void {
-    assert(dest.data.len == src.data.len);
-    assert(dest.row.val() == src.row.val());
-    assert(dest.col.val() == src.col.val());
-
-    @memcpy(dest.data, src.data);
 }
 
 test Matrix {
-    const io = testing.io;
-    const allocator = testing.allocator;
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
-    const stdout_writer = &stdout_file_writer.interface;
-
-    var data = [_]f32{
-        1, 2, 3,
-        4, 5, 6,
-        7, 8, 9,
-    };
-    const row = 3;
-    const col = 3;
-
-    var matrix: Matrix(f32) = .init_from_slice(&data, row, col);
-
-    try testing.expectEqual(5, matrix.get(.at(1), .at(1)));
-    try testing.expectEqual(7, matrix.get(.at(2), .at(0)));
-
-    matrix.ptr(.at(2), .at(1)).* = 6;
-    try testing.expectEqual(6, matrix.get(.at(2), .at(1)));
-
-    try matrix.print(stdout_writer, "matrix");
-
-    var new_matrix = try matrix.copy_row(allocator, .at(0));
-    defer new_matrix.deinit(allocator);
-
-    try new_matrix.print(stdout_writer, "new_matrix");
-
-    var matrix_2: Matrix(f32) = try .init(allocator, row, col);
-    defer matrix_2.deinit(allocator);
-
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
-    matrix_2.fill_random(random);
-    try matrix_2.print(stdout_writer, "matrix_2");
+    var stderr_file_writer: Io.File.Writer = .init(.stderr(), testing.io, &.{});
+    const stderr_writer = &stderr_file_writer.interface;
 
-    std.debug.print("Dimensions = {d} x {d}\n", .{ matrix.row.val(), matrix.col.val() });
-    std.debug.print("data_count = {d}\n", .{matrix.data.len});
-
-    try stdout_writer.flush();
-}
-
-test "get and ptr access same element" {
-    var matrix = try Matrix(i32).init(testing.allocator, 2, 2);
+    var matrix: Matrix(f32) = try .init(testing.allocator, .init(6, 6));
     defer matrix.deinit(testing.allocator);
-    
-    matrix.ptr(.at(0), .at(0)).* = 42;
-    matrix.ptr(.at(1), .at(1)).* = 99;
-    
-    try testing.expectEqual(42, matrix.get(.at(0), .at(0)));
-    try testing.expectEqual(99, matrix.get(.at(1), .at(1)));
+    matrix.fill_random(random);
+
+    var a = try matrix.copy_submatrix(testing.allocator, .{.start_col = 0, .stride = 2});
+    defer a.deinit(testing.allocator);
+
+    var b = try matrix.copy_row(testing.allocator, 2);
+    defer b.deinit(testing.allocator);
+
+    try matrix.print(stderr_writer, "matrix");
+    try a.print(stderr_writer, "a");
+    try b.print(stderr_writer, "b");
+    try stderr_writer.flush();
 }
 
 test "add" {
-    const allocator = testing.allocator;
+    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer a.deinit(testing.allocator);
+    a.fill(1);
 
-    const row = 3;
-    const col = 3;
+    var b: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer b.deinit(testing.allocator);
+    b.fill(2);
 
-    var a: Matrix(f32) = try .init(allocator, row, col);
-    defer a.deinit(allocator);
-    a.fill(2);
+    var c: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer c.deinit(testing.allocator);
+    c.fill(0);
 
-    var b: Matrix(f32) = try .init(allocator, row, col);
-    defer b.deinit(allocator);
-    b.fill(3);
-
-    var result: Matrix(f32) = try .init(allocator, row, col);
-    defer result.deinit(allocator);
-
-    add(f32, &result, a, b);
-
-    for (result.data) |val| {
-        try testing.expectEqual(5, val);
-    }
+    c.add(a, b);
+    try testing.expectEqualSlices(
+        f32,
+        &[_]f32{
+            3, 3, 3,
+            3, 3, 3,
+            3, 3, 3,
+        },
+        c.data,
+    );
 }
 
 test "mul" {
-    var data: [4096]u8 = undefined;
+    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer a.deinit(testing.allocator);
+    a.fill(1);
 
-    var fixed_buffer: std.heap.FixedBufferAllocator = .init(&data);
-    const fba = fixed_buffer.allocator();
+    var b: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer b.deinit(testing.allocator);
+    b.fill(7);
 
-    var a_data = [_]f32{ 4, 2, 2, 1 };
-    const a: Matrix(f32) = .init_from_slice(&a_data, 2, 2);
+    var c: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer c.deinit(testing.allocator);
+    c.fill(0);
 
-    var b_data = [_]f32{ 0, 1, 2, 2, 1, 1 };
-    const b: Matrix(f32) = .init_from_slice(&b_data, 2, 3);
-
-    var result: Matrix(f32) = try .init(fba, 2, 3);
-    defer result.deinit(fba);
-
-    mul(f32, &result, a, b);
-
-    try testing.expectEqualSlices(f32, &[_]f32{ 4, 6, 10, 2, 3, 5 }, result.data);
+    c.mul(a, b);
+    try testing.expectEqualSlices(
+        f32,
+        &[_]f32{
+            21, 21, 21,
+            21, 21, 21,
+            21, 21, 21,
+        },
+        c.data,
+    );
 }
 
-test "clone" {
-    var data: [4096]u8 = undefined;
+test "transpose" {
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
 
-    var fixed_buffer: std.heap.FixedBufferAllocator = .init(&data);
-    const fba = fixed_buffer.allocator();
+    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer a.deinit(testing.allocator);
+    a.fill_random(random);
 
-    const row = 3;
-    const col = 3;
+    var b = try a.copy_transpose(testing.allocator);
+    defer b.deinit(testing.allocator);
 
-    var a: Matrix(f32) = try .init(fba, row, col);
-    defer a.deinit(fba);
-    a.fill(23);
+    var c: Matrix(f32) = try b.copy_transpose(testing.allocator);
+    defer c.deinit(testing.allocator);
 
-    var b: Matrix(f32) = try .init(fba, row, col);
-    defer b.deinit(fba);
-
-    copy(f32, &b, a);
-
-    try testing.expectEqualSlices(f32, a.data, b.data);
+    try testing.expectEqualSlices(
+        f32,
+        a.data,
+        c.data,
+    );
 }
 
-test "copy_transpose" {
-    var data: [4096]u8 = undefined;
-
-    var fixed_buffer: std.heap.FixedBufferAllocator = .init(&data);
-
-    const gpa = fixed_buffer.allocator();
-
-    const row = 3;
-    const col = 3;
-
-    var a: Matrix(f32) = try .init(gpa, row, col);
-    defer a.deinit(gpa);
+test "scale" {
+    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
+    defer a.deinit(testing.allocator);
     a.fill(2);
 
-    var a_transpose = try a.copy_transpose(gpa);
-    defer a_transpose.deinit(gpa);
+    a.scale(3);
 
-    var b = try a_transpose.copy_transpose(gpa);
-    defer b.deinit(gpa);
-
-    try testing.expectEqualSlices(f32, a.data, b.data);
-}
-
-test "copy_submatrix" {
-    const io = testing.io;
-    const allocator = testing.allocator;
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
-    const stdout_writer = &stdout_file_writer.interface;
-
-    var data = [_]f32{
-        1, 2, 3,
-        4, 5, 6,
-        7, 8, 9,
-    };
-    const row = 3;
-    const col = 3;
-
-    var matrix: Matrix(f32) = .init_from_slice(&data, row, col);
-
-    var copy_submatrix = try matrix.copy_submatrix(allocator, 1, .at(3));
-    defer copy_submatrix.deinit(allocator);
-
-    try matrix.print(stdout_writer, "matrix");
-
-    try copy_submatrix.print(stdout_writer, "copy_submatrix");
-    try stdout_writer.flush();
+    try testing.expectEqualSlices(
+        f32,
+        &[_]f32{
+            6, 6, 6,
+            6, 6, 6,
+            6, 6, 6,
+        },
+        a.data,
+    );
 }
