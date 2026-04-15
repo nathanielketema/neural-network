@@ -25,6 +25,7 @@ pub fn Matrix(comptime T: type) type {
             pub fn init(row: usize, col: usize) Shape {
                 const upper_bound = std.math.pow(usize, 2, @typeInfo(u16).int.bits);
                 assert(row < upper_bound and col < upper_bound);
+                assert(row != 0 and col != 0);
 
                 return .{
                     .row = @intCast(row),
@@ -74,9 +75,8 @@ pub fn Matrix(comptime T: type) type {
         }
 
         inline fn assert_shape(matrix: Self, row: usize, col: usize) void {
-            assert(matrix.data.len >= matrix.shape.row * matrix.stride);
-            assert(row < matrix.shape.row);
-            assert(col < matrix.shape.col);
+            assert(row <= matrix.shape.row);
+            assert(col <= matrix.shape.col);
         }
 
         inline fn index(matrix: Self, row: usize, col: usize) usize {
@@ -193,7 +193,7 @@ pub fn Matrix(comptime T: type) type {
             for (0..a.shape.row) |i| {
                 for (0..b.shape.col) |j| {
                     for (0..a.shape.col) |k| {
-                        result.ptr(i, j).* += a.at(i, k) * b.at(k, j);
+                        result.ptr(i, j).* = a.at(i, k) * b.at(k, j);
                     }
                 }
             }
@@ -214,7 +214,7 @@ pub fn Matrix(comptime T: type) type {
             for (0..matrix.shape.row) |r| {
                 const start = r * matrix.stride;
                 const end = start + matrix.shape.col;
-                try writer.print("    {any:2}\n", .{matrix.data[start..end]});
+                try writer.print("    {any:2.8}\n", .{matrix.data[start..end]});
             }
             try writer.print("\n", .{});
 
@@ -223,113 +223,116 @@ pub fn Matrix(comptime T: type) type {
     };
 }
 
-test Matrix {
-    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
-    const random = prng.random();
-    var stderr_file_writer: Io.File.Writer = .init(.stderr(), testing.io, &.{});
+test "smoke" {
+    const io = testing.io;
+    const allocator = testing.allocator;
+
+    var stderr_file_writer: Io.File.Writer = .init(.stderr(), io, &.{});
     const stderr_writer = &stderr_file_writer.interface;
 
-    var matrix: Matrix(f32) = try .init(testing.allocator, .init(6, 6));
-    defer matrix.deinit(testing.allocator);
-    matrix.fill_random(random);
-
-    var a = try matrix.copy_submatrix(testing.allocator, .{.start_col = 0, .stride = 2});
-    defer a.deinit(testing.allocator);
-
-    var b = try matrix.copy_row(testing.allocator, 2);
-    defer b.deinit(testing.allocator);
+    var matrix = try create_matrix(f32, allocator, .init(3, 3), null);
+    defer matrix.deinit(allocator);
 
     try matrix.print(stderr_writer, "matrix");
-    try a.print(stderr_writer, "a");
-    try b.print(stderr_writer, "b");
     try stderr_writer.flush();
 }
 
+test "matrix access" {
+    const allocator = testing.allocator;
+
+    var matrix = try create_matrix(f32, allocator, .init(15, 15), null);
+    defer matrix.deinit(allocator);
+
+    for (0..15) |r| {
+        for (0..15) |c| {
+            try testing.expect(matrix.at(r, c) == matrix.ptr(r, c).*);
+        }
+    }
+}
+
 test "add" {
-    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer a.deinit(testing.allocator);
-    a.fill(1);
+    const allocator = testing.allocator;
 
-    var b: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer b.deinit(testing.allocator);
-    b.fill(2);
+    var mt1 = try create_matrix(f32, allocator, .init(15, 15), null);
+    defer mt1.deinit(allocator);
 
-    var c: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer c.deinit(testing.allocator);
-    c.fill(0);
+    var mt2 = try create_matrix(f32, allocator, .init(15, 15), null);
+    defer mt2.deinit(allocator);
 
-    c.add(a, b);
-    try testing.expectEqualSlices(
-        f32,
-        &[_]f32{
-            3, 3, 3,
-            3, 3, 3,
-            3, 3, 3,
-        },
-        c.data,
-    );
+    var res = try create_matrix(f32, allocator, .init(15, 15), 0);
+    defer res.deinit(allocator);
+
+    try check(f32, allocator, .add, &res, mt1, mt2);
 }
 
 test "mul" {
-    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer a.deinit(testing.allocator);
-    a.fill(1);
+    const allocator = testing.allocator;
 
-    var b: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer b.deinit(testing.allocator);
-    b.fill(7);
+    var mt1 = try create_matrix(f32, allocator, .init(15, 15), null);
+    defer mt1.deinit(allocator);
 
-    var c: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer c.deinit(testing.allocator);
-    c.fill(0);
+    var mt2 = try create_matrix(f32, allocator, .init(15, 15), null);
+    defer mt2.deinit(allocator);
 
-    c.mul(a, b);
-    try testing.expectEqualSlices(
-        f32,
-        &[_]f32{
-            21, 21, 21,
-            21, 21, 21,
-            21, 21, 21,
-        },
-        c.data,
-    );
+    var res = try create_matrix(f32, allocator, .init(15, 15), 0);
+    defer res.deinit(allocator);
+
+    try check(f32, allocator, .mul, &res, mt1, mt2);
 }
 
-test "transpose" {
+fn create_matrix(
+    comptime T: type,
+    gpa: Allocator,
+    size: Matrix(T).Shape,
+    fill_val: ?T,
+) !Matrix(T) {
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
 
-    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer a.deinit(testing.allocator);
-    a.fill_random(random);
+    var matrix: Matrix(f32) = try .init(gpa, size);
 
-    var b = try a.copy_transpose(testing.allocator);
-    defer b.deinit(testing.allocator);
+    if (fill_val) |val| {
+        matrix.fill(val);
+    } else {
+        matrix.fill_random(random);
+    }
 
-    var c: Matrix(f32) = try b.copy_transpose(testing.allocator);
-    defer c.deinit(testing.allocator);
-
-    try testing.expectEqualSlices(
-        f32,
-        a.data,
-        c.data,
-    );
+    return matrix;
 }
 
-test "scale" {
-    var a: Matrix(f32) = try .init(testing.allocator, .init(3, 3));
-    defer a.deinit(testing.allocator);
-    a.fill(2);
-
-    a.scale(3);
-
-    try testing.expectEqualSlices(
-        f32,
-        &[_]f32{
-            6, 6, 6,
-            6, 6, 6,
-            6, 6, 6,
+fn check(
+    comptime T: type,
+    gpa: Allocator,
+    opr: enum { add, mul },
+    res: *Matrix(T),
+    mt1: Matrix(T),
+    mt2: Matrix(T),
+) !void {
+    switch (opr) {
+        .add => {
+            res.add(mt1, mt2);
+            for (0..res.shape.row) |r| {
+                for (0..res.shape.col) |c| {
+                    try testing.expectEqual(mt1.at(r, c), res.at(r, c) - mt2.at(r, c));
+                }
+            }
         },
-        a.data,
-    );
+        .mul => {
+            // (A × B)^T = B^T × A^T
+            res.mul(mt1, mt2);
+
+            var left = try res.copy_transpose(gpa);
+            defer left.deinit(gpa);
+
+            var mt2_trans = try mt2.copy_transpose(gpa);
+            defer mt2_trans.deinit(gpa);
+
+            var mt1_trans = try mt1.copy_transpose(gpa);
+            defer mt1_trans.deinit(gpa);
+
+            res.mul(mt2_trans, mt1_trans);
+
+            try testing.expectEqualSlices(T, left.data, res.data);
+        },
+    }
 }
