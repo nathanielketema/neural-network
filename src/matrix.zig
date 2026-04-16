@@ -216,11 +216,9 @@ pub fn Matrix(comptime T: type) type {
             for (0..matrix.shape.row) |r| {
                 const start = r * matrix.stride;
                 const end = start + matrix.shape.col;
-                try writer.print("    {any:2.8}\n", .{matrix.data[start..end]});
+                try writer.print("        {any:2.8}\n", .{matrix.data[start..end]});
             }
             try writer.print("\n", .{});
-
-            try writer.flush();
         }
     };
 }
