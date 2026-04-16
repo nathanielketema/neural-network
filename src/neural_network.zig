@@ -1,11 +1,11 @@
 const std = @import("std");
-const Io = std.Io;
-const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub const matrix = @import("matrix");
-pub const Matrix = matrix.Matrix(f32);
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+
+pub const Matrix = @import("matrix").Matrix(f32);
 
 pub const Activation = enum {
     relu,
@@ -20,12 +20,15 @@ pub const Activation = enum {
 };
 
 pub const NeuralNetwork = struct {
-    weights: []Matrix,
+    weigts: []Matrix,
     biases: []Matrix,
-    activations: []Matrix,
+    layers: []Matrix,
     activation_fn: Activation,
-    learning_rate: f32,
+    alpha: f32,
     eps: f32,
+
+    // .init(gpa, &.{2, 3, 2, 2});
+    //pub fn init(gpa: Allocator, architecture: []const u8) NeuralNetwork {}
 
     //pub fn forward(self: *NeuralNetwork, input: Matrix) !Matrix
     //pub fn backward(self: *NeuralNetwork, target: Matrix) !void
