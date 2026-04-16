@@ -250,7 +250,12 @@ test "matrix access" {
     }
 }
 
-test "add" {
+test "size" {
+    const size = std.math.maxInt(usize);
+    std.debug.print("size: {d}\n", .{size});
+}
+
+test "operations" {
     const allocator = testing.allocator;
 
     var mt1 = try create_matrix(f32, allocator, .init(15, 15), null);
@@ -263,21 +268,8 @@ test "add" {
     defer res.deinit(allocator);
 
     try check(f32, allocator, .add, &res, mt1, mt2);
-}
-
-test "mul" {
-    const allocator = testing.allocator;
-
-    var mt1 = try create_matrix(f32, allocator, .init(15, 15), null);
-    defer mt1.deinit(allocator);
-
-    var mt2 = try create_matrix(f32, allocator, .init(15, 15), null);
-    defer mt2.deinit(allocator);
-
-    var res = try create_matrix(f32, allocator, .init(15, 15), 0);
-    defer res.deinit(allocator);
-
     try check(f32, allocator, .mul, &res, mt1, mt2);
+    try check(f32, allocator, .scale, &res, mt1, mt2);
 }
 
 fn create_matrix(
@@ -303,7 +295,7 @@ fn create_matrix(
 fn check(
     comptime T: type,
     gpa: Allocator,
-    opr: enum { add, mul },
+    opr: enum { add, mul, scale },
     res: *Matrix(T),
     mt1: Matrix(T),
     mt2: Matrix(T),
@@ -318,6 +310,7 @@ fn check(
             }
         },
         .mul => {
+            // This also tests the matrix transpose
             // (A × B)^T = B^T × A^T
             res.mul(mt1, mt2);
 
@@ -333,6 +326,33 @@ fn check(
             res.mul(mt2_trans, mt1_trans);
 
             try testing.expectEqualSlices(T, left.data, res.data);
+        },
+        .scale => {
+            // c(A + B) = cA + cB
+            var right = try create_matrix(T, gpa, res.shape, 0);
+            defer right.deinit(gpa);
+
+            var a = try create_matrix(T, gpa, res.shape, 0);
+            defer a.deinit(gpa);
+
+            var b = try create_matrix(T, gpa, res.shape, 0);
+            defer b.deinit(gpa);
+
+            var prng = std.Random.DefaultPrng.init(testing.random_seed);
+            const c = prng.random().float(f32);
+
+            a.copy(mt1);
+            b.copy(mt2);
+
+            res.add(mt1, mt2);
+            res.scale(c);
+
+            a.scale(c);
+            b.scale(c);
+
+            right.add(a, b);
+
+            try testing.expectEqualSlices(T, res.data, right.data);
         },
     }
 }
