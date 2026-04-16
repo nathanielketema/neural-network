@@ -209,10 +209,10 @@ pub fn Matrix(comptime T: type) type {
             @memcpy(dest.data, src.data);
         }
 
-        pub fn print(matrix: Self, writer: *Io.Writer, matrix_name: []const u8) !void {
+        pub fn print(matrix: Self, writer: *Io.Writer, name: []const u8) !void {
             matrix.assert_matrix();
 
-            try writer.print("{s}:\n", .{matrix_name});
+            try writer.print("{s}:\n", .{name});
             for (0..matrix.shape.row) |r| {
                 const start = r * matrix.stride;
                 const end = start + matrix.shape.col;
