@@ -252,11 +252,6 @@ test "matrix access" {
     }
 }
 
-test "size" {
-    const size = std.math.maxInt(usize);
-    std.debug.print("size: {d}\n", .{size});
-}
-
 test "operations" {
     const allocator = testing.allocator;
 
