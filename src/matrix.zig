@@ -192,9 +192,11 @@ pub fn Matrix(comptime T: type) type {
 
             for (0..a.shape.row) |i| {
                 for (0..b.shape.col) |j| {
+                    var sum: T = 0;
                     for (0..a.shape.col) |k| {
-                        result.ptr(i, j).* = a.at(i, k) * b.at(k, j);
+                        sum += a.at(i, k) * b.at(k, j);
                     }
+                    result.ptr(i, j).* = sum;
                 }
             }
         }
