@@ -111,22 +111,29 @@ pub fn fill_rand(nn: *NeuralNetwork, random: std.Random) void {
 pub fn print(
     nn: *const NeuralNetwork,
     writer: *Io.Writer,
-    gpa: Allocator,
     name: []const u8,
 ) !void {
     try writer.print("{s}:\n", .{name});
 
+    // Currently limited to [0..10) weigts and biases
+    // FUTURE: extend it if need be
     for (nn.weigts, 0..) |wght, i| {
         try writer.print("    ", .{});
-        const wght_name = try std.fmt.allocPrint(gpa, "wght_{d}", .{i});
-        defer gpa.free(wght_name);
+        const num = [2]u8{
+            '_',
+            @intCast('0' + i % 10),
+        };
+        const wght_name = "wght" ++ num;
         try wght.print(writer, wght_name);
     }
 
     for (nn.biases, 0..) |bias, i| {
         try writer.print("    ", .{});
-        const bias_name = try std.fmt.allocPrint(gpa, "bias_{d}", .{i});
-        defer gpa.free(bias_name);
+        const num = [2]u8{
+            '_',
+            @intCast('0' + i % 10),
+        };
+        const bias_name = "bias" ++ num;
         try bias.print(writer, bias_name);
     }
 }
@@ -160,6 +167,6 @@ test "smoke" {
     defer nn.deinit(gpa);
     nn.fill_rand(random);
 
-    try nn.print(stdout_writer, gpa, "nn");
+    try nn.print(stdout_writer, "nn");
     try stdout_writer.flush();
 }
