@@ -35,12 +35,12 @@ pub fn Matrix(comptime T: type) type {
         };
 
         pub const SubmatrixOptions = struct {
-            start_col: usize,
+            inital: usize,
             stride: usize,
 
             pub fn validate(options: SubmatrixOptions, cols: usize) void {
-                assert(options.start_col < cols);
-                assert(options.stride <= cols);
+                assert(options.inital < cols);
+                assert(options.stride < cols);
                 assert(options.stride > 0);
             }
         };
@@ -97,59 +97,58 @@ pub fn Matrix(comptime T: type) type {
             return matrix.data[matrix.index(row, col)];
         }
 
-        pub fn copy_row(matrix: Self, gpa: Allocator, row: usize) !Self {
-            matrix.assert_matrix();
-            assert(row < matrix.shape.row);
+        pub fn copy(target: *Self, source: Self) void {
+            assert(target.data.len == source.data.len);
+            assert(target.shape.row == source.shape.row);
+            assert(target.shape.col == source.shape.col);
 
-            var new_matrix: Matrix(T) = try .init(gpa, Shape.init(1, matrix.shape.col));
-            errdefer new_matrix.deinit(gpa);
-
-            for (0..matrix.shape.col) |c| {
-                new_matrix.ptr(0, c).* = matrix.at(row, c);
-            }
-
-            return new_matrix;
+            @memcpy(target.data, source.data);
         }
 
-        pub fn copy_submatrix(matrix: Self, gpa: Allocator, options: SubmatrixOptions) !Self {
-            matrix.assert_matrix();
-            options.validate(matrix.shape.col);
+        pub fn copy_row(target: *Self, source: Self, row: usize) void {
+            source.assert_matrix();
+            assert(row < source.shape.row);
 
-            const new_col = 1 + (matrix.shape.col - options.start_col - 1) / options.stride;
+            for (0..source.shape.col) |c| {
+                target.ptr(0, c).* = source.at(row, c);
+            }
+        }
 
-            var new_matrix: Self = try .init(gpa, Shape.init(matrix.shape.row, new_col));
-            errdefer new_matrix.deinit(gpa);
+        pub fn copy_submatrix(target: *Self, source: Self, options: SubmatrixOptions) void {
+            target.assert_matrix();
+            source.assert_matrix();
+            options.validate(source.shape.col);
 
-            for (0..matrix.shape.row) |r| {
+            const new_col = target.shape.col;
+            for (0..target.shape.row) |r| {
                 for (0..new_col) |c| {
-                    const src_new_col = options.start_col + (c * options.stride);
-                    new_matrix.ptr(r, c).* = matrix.at(r, src_new_col);
+                    const src_new_col = options.inital + (c * options.stride);
+                    target.ptr(r, c).* = source.at(r, src_new_col);
                 }
             }
-            return new_matrix;
         }
 
-        pub fn copy_transpose(matrix: Self, gpa: Allocator) !Self {
-            matrix.assert_matrix();
+        // Caller is responsible for freeing memeory
+        pub fn copy_transpose(source: Self, gpa: Allocator) !Self {
+            source.assert_matrix();
 
-            var new_matrix: Matrix(T) = try .init(gpa, Shape.init(
-                matrix.shape.col,
-                matrix.shape.row,
+            var target: Matrix(T) = try .init(gpa, .init(
+                source.shape.col,
+                source.shape.row,
             ));
-            errdefer new_matrix.deinit(gpa);
 
-            for (0..new_matrix.shape.row) |r| {
-                for (0..new_matrix.shape.col) |c| {
-                    new_matrix.ptr(r, c).* = matrix.at(c, r);
+            for (0..target.shape.row) |r| {
+                for (0..target.shape.col) |c| {
+                    target.ptr(r, c).* = source.at(c, r);
                 }
             }
 
-            return new_matrix;
+            return target;
         }
 
-        pub fn fill(matrix: *Self, value: T) void {
+        pub fn fill(matrix: *Self, number: T) void {
             matrix.assert_matrix();
-            @memset(matrix.data, value);
+            @memset(matrix.data, number);
         }
 
         pub fn fill_random(matrix: *Self, random: std.Random) void {
@@ -172,41 +171,33 @@ pub fn Matrix(comptime T: type) type {
             }
         }
 
-        pub fn add(result: *Self, a: Self, b: Self) void {
-            assert(a.shape.row == b.shape.row);
-            assert(a.shape.col == b.shape.col);
-            assert(result.shape.row == a.shape.row);
-            assert(result.shape.col == a.shape.col);
+        pub fn add(res: *Self, mt1: Self, mt2: Self) void {
+            assert(mt1.shape.row == mt2.shape.row);
+            assert(mt1.shape.col == mt2.shape.col);
+            assert(res.shape.row == mt1.shape.row);
+            assert(res.shape.col == mt1.shape.col);
 
-            for (0..a.shape.row) |r| {
-                for (0..b.shape.col) |c| {
-                    result.ptr(r, c).* = a.at(r, c) + b.at(r, c);
+            for (0..mt1.shape.row) |r| {
+                for (0..mt2.shape.col) |c| {
+                    res.ptr(r, c).* = mt1.at(r, c) + mt2.at(r, c);
                 }
             }
         }
 
-        pub fn mul(result: *Self, a: Self, b: Self) void {
-            assert(a.shape.col == b.shape.row);
-            assert(result.shape.row == a.shape.row);
-            assert(result.shape.col == b.shape.col);
+        pub fn mul(res: *Self, mt1: Self, mt2: Self) void {
+            assert(mt1.shape.col == mt2.shape.row);
+            assert(res.shape.row == mt1.shape.row);
+            assert(res.shape.col == mt2.shape.col);
 
-            for (0..a.shape.row) |i| {
-                for (0..b.shape.col) |j| {
+            for (0..mt1.shape.row) |i| {
+                for (0..mt2.shape.col) |j| {
                     var sum: T = 0;
-                    for (0..a.shape.col) |k| {
-                        sum += a.at(i, k) * b.at(k, j);
+                    for (0..mt1.shape.col) |k| {
+                        sum += mt1.at(i, k) * mt2.at(k, j);
                     }
-                    result.ptr(i, j).* = sum;
+                    res.ptr(i, j).* = sum;
                 }
             }
-        }
-
-        pub fn copy(dest: *Self, src: Self) void {
-            assert(dest.data.len == src.data.len);
-            assert(dest.shape.row == src.shape.row);
-            assert(dest.shape.col == src.shape.col);
-
-            @memcpy(dest.data, src.data);
         }
 
         pub fn print(matrix: Self, writer: *Io.Writer, name: []const u8) !void {
@@ -314,13 +305,15 @@ fn check(
 
             var mt2_trans = try mt2.copy_transpose(gpa);
             defer mt2_trans.deinit(gpa);
-
             var mt1_trans = try mt1.copy_transpose(gpa);
             defer mt1_trans.deinit(gpa);
 
-            res.mul(mt2_trans, mt1_trans);
+            var right: Matrix(T) = try create_matrix(T, gpa, left.shape, 0);
+            defer right.deinit(gpa);
 
-            try testing.expectEqualSlices(T, left.data, res.data);
+            right.mul(mt2_trans, mt1_trans);
+
+            try testing.expectEqualSlices(T, left.data, right.data);
         },
         .scale => {
             // c(A + B) = cA + cB

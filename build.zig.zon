@@ -1,8 +1,8 @@
 .{
-    .name = .neural_network,
+    .name = .NeuralNetwork,
     .version = "0.0.0",
     .minimum_zig_version = "0.16.0",
-    .fingerprint = 0x6a1a73a377b20df5,
+    .fingerprint = 0x7b2e2ad882365c51,
     .dependencies = .{},
     .paths = .{
         "build.zig",

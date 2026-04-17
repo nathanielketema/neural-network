@@ -10,8 +10,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const nn_mod = b.addModule("neural_network", .{
-        .root_source_file = b.path("src/neural_network.zig"),
+    const nn_mod = b.addModule("NeuralNetwork", .{
+        .root_source_file = b.path("src/NeuralNetwork.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -30,6 +30,6 @@ pub fn build(b: *std.Build) void {
     const run_nn_test = b.addRunArtifact(nn_test);
 
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_nn_test.step);
     test_step.dependOn(&run_matrix_test.step);
+    test_step.dependOn(&run_nn_test.step);
 }
