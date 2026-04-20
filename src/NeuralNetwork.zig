@@ -15,7 +15,6 @@ biases: []Matrix,
 layers: []Matrix,
 activation: Activation,
 alpha: f32,
-epsln: f32,
 
 pub const Activation = enum {
     relu,
@@ -49,7 +48,6 @@ pub const Options = struct {
     architecture: []const usize,
     activation: Activation = .sigmoid,
     alpha: f32 = 0.01,
-    epsln: f32 = 0.01,
 };
 
 // Caller must free memory by calling deinit()
@@ -88,7 +86,6 @@ pub fn init(gpa: Allocator, options: Options) !NeuralNetwork {
         .layers = try layers.toOwnedSlice(gpa),
         .activation = options.activation,
         .alpha = options.alpha,
-        .epsln = options.epsln,
     };
 }
 
