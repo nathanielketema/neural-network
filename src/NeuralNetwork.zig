@@ -10,7 +10,7 @@ const ArrayList = std.ArrayList;
 
 pub const Matrix = @import("matrix").Matrix(f32);
 
-weigts: []Matrix,
+weigths: []Matrix,
 biases: []Matrix,
 layers: []Matrix,
 activation: Activation,
@@ -57,7 +57,7 @@ pub fn init(gpa: Allocator, options: Options) !NeuralNetwork {
     const count = options.architecture.len;
 
     var layers: ArrayList(Matrix) = try .initCapacity(gpa, count);
-    var weigts: ArrayList(Matrix) = try .initCapacity(gpa, count - 1);
+    var weigths: ArrayList(Matrix) = try .initCapacity(gpa, count - 1);
     var biases: ArrayList(Matrix) = try .initCapacity(gpa, count - 1);
 
     for (0..count - 1) |i| {
@@ -74,14 +74,14 @@ pub fn init(gpa: Allocator, options: Options) !NeuralNetwork {
         bias.fill(0);
 
         try layers.append(gpa, lyer);
-        try weigts.append(gpa, wght);
+        try weigths.append(gpa, wght);
         try biases.append(gpa, bias);
     }
     try layers.append(gpa, try .init(gpa, .init(1, options.architecture[count - 1])));
     layers.items[layers.items.len - 1].fill(0);
 
     return .{
-        .weigts = try weigts.toOwnedSlice(gpa),
+        .weigths = try weigths.toOwnedSlice(gpa),
         .biases = try biases.toOwnedSlice(gpa),
         .layers = try layers.toOwnedSlice(gpa),
         .activation = options.activation,
@@ -90,17 +90,17 @@ pub fn init(gpa: Allocator, options: Options) !NeuralNetwork {
 }
 
 pub fn deinit(nn: *NeuralNetwork, gpa: Allocator) void {
-    for (nn.weigts) |*wght| wght.deinit(gpa);
+    for (nn.weigths) |*wght| wght.deinit(gpa);
     for (nn.biases) |*bias| bias.deinit(gpa);
     for (nn.layers) |*lyer| lyer.deinit(gpa);
 
-    gpa.free(nn.weigts);
+    gpa.free(nn.weigths);
     gpa.free(nn.biases);
     gpa.free(nn.layers);
 }
 
 pub fn fill_rand(nn: *NeuralNetwork, random: std.Random) void {
-    for (nn.weigts) |*wght| wght.fill_random(random);
+    for (nn.weigths) |*wght| wght.fill_random(random);
     for (nn.biases) |*bias| bias.fill_random(random);
 }
 
@@ -112,9 +112,9 @@ pub fn print(
 ) !void {
     try writer.print("{s}:\n", .{name});
 
-    // Currently limited to [0..10) weigts and biases
+    // Currently limited to [0..10) weigths and biases
     // FUTURE: extend it if need be
-    for (nn.weigts, 0..) |wght, i| {
+    for (nn.weigths, 0..) |wght, i| {
         try writer.print("    ", .{});
         const num = [2]u8{
             '_',
@@ -137,10 +137,13 @@ pub fn print(
 
 pub fn forward(nn: *NeuralNetwork) void {
     for (0..nn.layers.len - 1) |i| {
-        nn.layers[i + 1].mul(nn.layers[i], nn.weigts[i]);
+        nn.layers[i + 1].mul(nn.layers[i], nn.weigths[i]);
         nn.layers[i + 1].add(nn.layers[i + 1], nn.biases[i]);
         nn.activation.apply(&nn.layers[i + 1]);
     }
+}
+
+pub fn backward(nn: *NeuralNetwork, training_input: Matrix, training_otput: Matrix) void {
 }
 
 //Possible APIs:
