@@ -184,6 +184,19 @@ pub fn Matrix(comptime T: type) type {
             }
         }
 
+        pub fn sub(res: *Self, mt1: Self, mt2: Self) void {
+            assert(mt1.shape.row == mt2.shape.row);
+            assert(mt1.shape.col == mt2.shape.col);
+            assert(res.shape.row == mt1.shape.row);
+            assert(res.shape.col == mt1.shape.col);
+
+            for (0..mt1.shape.row) |r| {
+                for (0..mt2.shape.col) |c| {
+                    res.ptr(r, c).* = mt1.at(r, c) - mt2.at(r, c);
+                }
+            }
+        }
+
         pub fn mul(res: *Self, mt1: Self, mt2: Self) void {
             assert(mt1.shape.col == mt2.shape.row);
             assert(res.shape.row == mt1.shape.row);
