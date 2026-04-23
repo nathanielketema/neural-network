@@ -37,11 +37,14 @@ pub fn Matrix(comptime T: type) type {
         pub const SubmatrixOptions = struct {
             inital: usize,
             stride: usize,
+            column: usize,
 
             pub fn validate(options: SubmatrixOptions, cols: usize) void {
                 assert(options.inital < cols);
                 assert(options.stride < cols);
                 assert(options.stride > 0);
+                assert(options.column > 0);
+                assert(options.inital + ((options.column - 1) * options.stride) < cols);
             }
         };
 
@@ -75,8 +78,8 @@ pub fn Matrix(comptime T: type) type {
         }
 
         inline fn assert_shape(matrix: Self, row: usize, col: usize) void {
-            assert(row <= matrix.shape.row);
-            assert(col <= matrix.shape.col);
+            assert(row < matrix.shape.row);
+            assert(col < matrix.shape.col);
         }
 
         inline fn index(matrix: Self, row: usize, col: usize) usize {
@@ -105,34 +108,40 @@ pub fn Matrix(comptime T: type) type {
             @memcpy(target.data, source.data);
         }
 
-        pub fn copy_row(target: *Self, source: Self, row: usize) void {
+        pub fn copy_row(source: Self, arena: Allocator, row: usize) !Self {
             source.assert_matrix();
             assert(row < source.shape.row);
 
-            for (0..source.shape.col) |c| {
-                target.ptr(0, c).* = source.at(row, c);
+            var target: Matrix(T) = try .init(arena, .init(1, source.shape.col));
+            for (0..source.shape.col) |col| {
+                target.ptr(0, col).* = source.at(row, col);
             }
+            return target;
         }
 
-        pub fn copy_submatrix(target: *Self, source: Self, options: SubmatrixOptions) void {
-            target.assert_matrix();
+        pub fn copy_submatrix(source: Matrix(T), arena: Allocator, options: SubmatrixOptions) !Self {
             source.assert_matrix();
             options.validate(source.shape.col);
 
-            const new_col = target.shape.col;
-            for (0..target.shape.row) |r| {
-                for (0..new_col) |c| {
-                    const src_new_col = options.inital + (c * options.stride);
-                    target.ptr(r, c).* = source.at(r, src_new_col);
+            const target_col = options.column;
+            var target: Matrix(T) = try .init(arena, .init(
+                source.shape.row,
+                target_col,
+            ));
+
+            for (0..source.shape.row) |row| {
+                for (0..target_col) |col| {
+                    const new_col = options.inital + (col * options.stride);
+                    target.ptr(row, col).* = source.at(row, new_col);
                 }
             }
+            return target;
         }
 
-        // Caller is responsible for freeing memeory
-        pub fn copy_transpose(source: Self, gpa: Allocator) !Self {
+        pub fn copy_transpose(source: Self, arena: Allocator) !Self {
             source.assert_matrix();
 
-            var target: Matrix(T) = try .init(gpa, .init(
+            var target: Matrix(T) = try .init(arena, .init(
                 source.shape.col,
                 source.shape.row,
             ));
@@ -255,20 +264,88 @@ test "matrix access" {
 }
 
 test "operations" {
-    const allocator = testing.allocator;
+    const T = struct {
+        fn check(
+            comptime T: type,
+            opr: enum { add, mul, scale },
+            res: *Matrix(T),
+            mt1: Matrix(T),
+            mt2: Matrix(T),
+        ) !void {
+            const gpa = testing.allocator;
+            switch (opr) {
+                .add => {
+                    res.add(mt1, mt2);
+                    for (0..res.shape.row) |r| {
+                        for (0..res.shape.col) |c| {
+                            try testing.expectEqual(mt1.at(r, c), res.at(r, c) - mt2.at(r, c));
+                        }
+                    }
+                },
+                .mul => {
+                    // This also tests the matrix transpose
+                    // (A × B)^T = B^T × A^T
+                    res.mul(mt1, mt2);
 
-    var mt1 = try create_matrix(f32, allocator, .init(15, 15), null);
-    defer mt1.deinit(allocator);
+                    var left = try res.copy_transpose(gpa);
+                    defer left.deinit(gpa);
 
-    var mt2 = try create_matrix(f32, allocator, .init(15, 15), null);
-    defer mt2.deinit(allocator);
+                    var mt2_trans = try mt2.copy_transpose(gpa);
+                    defer mt2_trans.deinit(gpa);
+                    var mt1_trans = try mt1.copy_transpose(gpa);
+                    defer mt1_trans.deinit(gpa);
 
-    var res = try create_matrix(f32, allocator, .init(15, 15), 0);
-    defer res.deinit(allocator);
+                    var right: Matrix(T) = try create_matrix(T, gpa, left.shape, 0);
+                    defer right.deinit(gpa);
 
-    try check(f32, allocator, .add, &res, mt1, mt2);
-    try check(f32, allocator, .mul, &res, mt1, mt2);
-    try check(f32, allocator, .scale, &res, mt1, mt2);
+                    right.mul(mt2_trans, mt1_trans);
+
+                    try testing.expectEqualSlices(T, left.data, right.data);
+                },
+                .scale => {
+                    // c(A + B) = cA + cB
+                    var right = try create_matrix(T, gpa, res.shape, 0);
+                    defer right.deinit(gpa);
+
+                    var a = try create_matrix(T, gpa, res.shape, 0);
+                    defer a.deinit(gpa);
+
+                    var b = try create_matrix(T, gpa, res.shape, 0);
+                    defer b.deinit(gpa);
+
+                    var prng = std.Random.DefaultPrng.init(testing.random_seed);
+                    const c = prng.random().float(f32);
+
+                    a.copy(mt1);
+                    b.copy(mt2);
+
+                    res.add(mt1, mt2);
+                    res.scale(c);
+
+                    a.scale(c);
+                    b.scale(c);
+
+                    right.add(a, b);
+
+                    try testing.expectEqualSlices(T, res.data, right.data);
+                },
+            }
+        }
+    };
+    const gpa = testing.allocator;
+
+    var mt1 = try create_matrix(f32, gpa, .init(15, 15), null);
+    defer mt1.deinit(gpa);
+
+    var mt2 = try create_matrix(f32, gpa, .init(15, 15), null);
+    defer mt2.deinit(gpa);
+
+    var res = try create_matrix(f32, gpa, .init(15, 15), 0);
+    defer res.deinit(gpa);
+
+    try T.check(f32, .add, &res, mt1, mt2);
+    try T.check(f32, .mul, &res, mt1, mt2);
+    try T.check(f32, .scale, &res, mt1, mt2);
 }
 
 fn create_matrix(
@@ -280,7 +357,7 @@ fn create_matrix(
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
 
-    var matrix: Matrix(f32) = try .init(gpa, size);
+    var matrix: Matrix(T) = try .init(gpa, size);
 
     if (fill_val) |val| {
         matrix.fill(val);
@@ -289,71 +366,4 @@ fn create_matrix(
     }
 
     return matrix;
-}
-
-fn check(
-    comptime T: type,
-    gpa: Allocator,
-    opr: enum { add, mul, scale },
-    res: *Matrix(T),
-    mt1: Matrix(T),
-    mt2: Matrix(T),
-) !void {
-    switch (opr) {
-        .add => {
-            res.add(mt1, mt2);
-            for (0..res.shape.row) |r| {
-                for (0..res.shape.col) |c| {
-                    try testing.expectEqual(mt1.at(r, c), res.at(r, c) - mt2.at(r, c));
-                }
-            }
-        },
-        .mul => {
-            // This also tests the matrix transpose
-            // (A × B)^T = B^T × A^T
-            res.mul(mt1, mt2);
-
-            var left = try res.copy_transpose(gpa);
-            defer left.deinit(gpa);
-
-            var mt2_trans = try mt2.copy_transpose(gpa);
-            defer mt2_trans.deinit(gpa);
-            var mt1_trans = try mt1.copy_transpose(gpa);
-            defer mt1_trans.deinit(gpa);
-
-            var right: Matrix(T) = try create_matrix(T, gpa, left.shape, 0);
-            defer right.deinit(gpa);
-
-            right.mul(mt2_trans, mt1_trans);
-
-            try testing.expectEqualSlices(T, left.data, right.data);
-        },
-        .scale => {
-            // c(A + B) = cA + cB
-            var right = try create_matrix(T, gpa, res.shape, 0);
-            defer right.deinit(gpa);
-
-            var a = try create_matrix(T, gpa, res.shape, 0);
-            defer a.deinit(gpa);
-
-            var b = try create_matrix(T, gpa, res.shape, 0);
-            defer b.deinit(gpa);
-
-            var prng = std.Random.DefaultPrng.init(testing.random_seed);
-            const c = prng.random().float(f32);
-
-            a.copy(mt1);
-            b.copy(mt2);
-
-            res.add(mt1, mt2);
-            res.scale(c);
-
-            a.scale(c);
-            b.scale(c);
-
-            right.add(a, b);
-
-            try testing.expectEqualSlices(T, res.data, right.data);
-        },
-    }
 }
