@@ -207,22 +207,15 @@ pub fn learn(nn: *NeuralNetwork, alpha: f32) void {
 }
 
 test "smoke" {
-    const io = testing.io;
     var arena_instance: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
-
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_file_writer: Io.File.Writer = .init(.stderr(), io, &stdout_buffer);
-    const stdout_writer = &stdout_file_writer.interface;
 
     var prng: std.Random.DefaultPrng = .init(67);
     const random = prng.random();
 
     var nn: NeuralNetwork = try .init(arena, .{ .architecture = &.{ 2, 3, 1 } });
     nn.fill_rand(random);
-    try nn.print(stdout_writer, "nn");
-    try stdout_writer.flush();
 }
 
 test "learn reduces loss" {

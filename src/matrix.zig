@@ -237,24 +237,16 @@ pub fn Matrix(comptime T: type) type {
 }
 
 test "smoke" {
-    const io = testing.io;
-    const allocator = testing.allocator;
-
-    var stderr_file_writer: Io.File.Writer = .init(.stderr(), io, &.{});
-    const stderr_writer = &stderr_file_writer.interface;
-
-    var matrix = try create_matrix(f32, allocator, .init(3, 3), null);
-    defer matrix.deinit(allocator);
-
-    try matrix.print(stderr_writer, "matrix");
-    try stderr_writer.flush();
+    const gpa = testing.allocator;
+    var matrix = try create_matrix(f32, gpa, .init(3, 3), null);
+    defer matrix.deinit(gpa);
 }
 
 test "matrix access" {
-    const allocator = testing.allocator;
+    const gpa = testing.allocator;
 
-    var matrix = try create_matrix(f32, allocator, .init(15, 15), null);
-    defer matrix.deinit(allocator);
+    var matrix = try create_matrix(f32, gpa, .init(15, 15), null);
+    defer matrix.deinit(gpa);
 
     for (0..15) |r| {
         for (0..15) |c| {
