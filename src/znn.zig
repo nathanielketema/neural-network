@@ -15,6 +15,8 @@ pub const NN = struct {
     activation_fn: Activation,
     arena: std.heap.ArenaAllocator,
 
+    pub const max_layers: usize = 16;
+
     pub const Activation = enum {
         relu,
         sigmoid,
@@ -59,9 +61,10 @@ pub const NN = struct {
         architecture: []const u16,
         activation_fn: Activation = .sigmoid,
         random: std.Random,
-    }) !NN {
+    }) NN {
         for (options.architecture) |neurons| assert(neurons > 0);
         assert(options.architecture.len >= 2);
+        assert(options.architecture.len <= max_layers);
 
         var arena_instance: std.heap.ArenaAllocator = .init(gpa);
         errdefer arena_instance.deinit();
@@ -70,10 +73,10 @@ pub const NN = struct {
         const layer_count = options.architecture.len;
         const edge_count = layer_count - 1;
 
-        const weights = try arena.alloc(Matrix, edge_count);
-        const biases = try arena.alloc(Matrix, edge_count);
-        const deltas = try arena.alloc(Matrix, edge_count);
-        const activations = try arena.alloc(Matrix, layer_count);
+        const weights = arena.alloc(Matrix, edge_count) catch mtx.oom();
+        const biases = arena.alloc(Matrix, edge_count) catch mtx.oom();
+        const deltas = arena.alloc(Matrix, edge_count) catch mtx.oom();
+        const activations = arena.alloc(Matrix, layer_count) catch mtx.oom();
 
         for (0..edge_count) |i| {
             activations[i] = .init(arena, .{
@@ -158,15 +161,16 @@ pub const NN = struct {
         }
     }
 
-    pub fn predict(nn: *NN, gpa: Allocator, input: Matrix) Matrix {
+    /// No allocation. Usefuly when run in a loop.
+    pub fn predict_into(nn: *NN, output: *Matrix, input: Matrix) void {
         nn.forward(input);
-        const final = nn.activations[nn.activations.len - 1];
+        output.copy(nn.activations[nn.activations.len - 1]);
+    }
 
-        var predicted: Matrix = .init(gpa, .{
-            .row = final.shape.row,
-            .col = final.shape.col,
-        });
-        predicted.copy(final);
+    pub fn predict(nn: *NN, gpa: Allocator, input: Matrix) Matrix {
+        const final = nn.activations[nn.activations.len - 1];
+        var predicted: Matrix = .init(gpa, .{ .row = final.shape.row, .col = final.shape.col });
+        nn.predict_into(&predicted, input);
         return predicted;
     }
 
@@ -245,7 +249,7 @@ test "smoke" {
     var prng: std.Random.DefaultPrng = .init(67);
     const random = prng.random();
 
-    var nn: NN = try .init(testing.allocator, .{
+    var nn: NN = .init(testing.allocator, .{
         .architecture = &.{ 2, 3, 1 },
         .random = random,
     });
@@ -269,7 +273,7 @@ test "xor" {
     var xor_matrix: Matrix = .init_from_slice(arena, &xor, .{ .row = 4, .col = 3 });
     var inputs = xor_matrix.copy_cols(.{ .col_count = 2 });
     const targets = xor_matrix.copy_cols(.{ .col_count = 1, .start = 2 });
-    var nn = try NN.init(gpa, .{
+    var nn: NN = .init(gpa, .{
         .architecture = &.{ 2, 2, 1 },
         .activation_fn = .sigmoid,
         .random = random,
@@ -278,8 +282,10 @@ test "xor" {
 
     nn.train(inputs, targets, .{ .alpha = 1, .epoch = 5000 });
 
+    var output: Matrix = .init(arena, .{ .row = 1, .col = 1 });
     for (0..inputs.shape.row) |r| {
-        _ = nn.predict(arena, inputs.row_view(r));
+        nn.predict_into(&output, inputs.row_view(r));
+        // _ = nn.predict(arena, inputs.row_view(r));
         // std.debug.print("{d} ^ {d} = {d}, {f}", .{
         //     inputs.at(r, 0),
         //     inputs.at(r, 1),

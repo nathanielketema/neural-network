@@ -176,6 +176,19 @@ pub const Matrix = struct {
         return target;
     }
 
+    pub fn transpose_into(target: *Matrix, source: Matrix) void {
+        source.assert_matrix();
+        target.assert_matrix();
+        assert(target.shape.row == source.shape.col);
+        assert(target.shape.col == source.shape.row);
+
+        for (0..target.shape.row) |r| {
+            for (0..target.shape.col) |c| {
+                target.ptr(r, c).* = source.at(c, r);
+            }
+        }
+    }
+
     pub fn transpose(source: Matrix) Matrix {
         source.assert_matrix();
         const gpa = source.gpa;
@@ -186,11 +199,7 @@ pub const Matrix = struct {
         });
         errdefer target.deinit();
 
-        for (0..target.shape.row) |r| {
-            for (0..target.shape.col) |c| {
-                target.ptr(r, c).* = source.at(c, r);
-            }
-        }
+        target.transpose_into(source);
         return target;
     }
 
@@ -214,6 +223,19 @@ pub const Matrix = struct {
         }
     }
 
+    pub fn scale_into(target: *Matrix, source: Matrix, scalar: f32) void {
+        source.assert_matrix();
+        target.assert_matrix();
+        assert(target.shape.row == source.shape.row);
+        assert(target.shape.col == source.shape.col);
+
+        for (0..source.shape.row) |r| {
+            for (0..source.shape.col) |c| {
+                target.ptr(r, c).* = scalar * source.at(r, c);
+            }
+        }
+    }
+
     pub fn scale(matrix: Matrix, scalar: f32) Matrix {
         matrix.assert_matrix();
         const gpa = matrix.gpa;
@@ -221,11 +243,7 @@ pub const Matrix = struct {
         var result: Matrix = .init(gpa, matrix.shape);
         errdefer result.deinit();
 
-        for (0..matrix.shape.row) |r| {
-            for (0..matrix.shape.col) |c| {
-                result.ptr(r, c).* = scalar * matrix.at(r, c);
-            }
-        }
+        result.scale_into(matrix, scalar);
         return result;
     }
 
@@ -314,12 +332,7 @@ pub fn add(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
 
     var res: Matrix = .init(gpa, mt1.shape);
     errdefer res.deinit();
-
-    for (0..mt1.shape.row) |r| {
-        for (0..mt2.shape.col) |c| {
-            res.ptr(r, c).* = mt1.at(r, c) + mt2.at(r, c);
-        }
-    }
+    res.add_into(mt1, mt2);
     return res;
 }
 
@@ -331,12 +344,7 @@ pub fn sub(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
 
     var res: Matrix = .init(gpa, mt1.shape);
     errdefer res.deinit();
-
-    for (0..mt1.shape.row) |r| {
-        for (0..mt2.shape.col) |c| {
-            res.ptr(r, c).* = mt1.at(r, c) - mt2.at(r, c);
-        }
-    }
+    res.sub_into(mt1, mt2);
     return res;
 }
 
@@ -350,15 +358,7 @@ pub fn mul(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
         .col = mt2.shape.col,
     });
     errdefer res.deinit();
-
-    for (0..mt1.shape.row) |i| {
-        for (0..mt1.shape.col) |k| {
-            const a = mt1.at(i, k);
-            for (0..mt2.shape.col) |j| {
-                res.ptr(i, j).* += a * mt2.at(k, j);
-            }
-        }
-    }
+    res.mul_into(mt1, mt2);
     return res;
 }
 
