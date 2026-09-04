@@ -268,7 +268,7 @@ test "xor" {
     };
     var xor_matrix: Matrix = .init_from_slice(arena, &xor, .{ .row = 4, .col = 3 });
     var inputs = xor_matrix.copy_cols(.{ .col_count = 2 });
-    var targets = xor_matrix.copy_cols(.{ .col_count = 1, .start = 2 });
+    const targets = xor_matrix.copy_cols(.{ .col_count = 1, .start = 2 });
     var nn = try ZNN.init(gpa, .{
         .architecture = &.{ 2, 2, 1 },
         .activation_fn = .sigmoid,
@@ -279,11 +279,12 @@ test "xor" {
     nn.train(inputs, targets, .{ .alpha = 1, .epoch = 5000 });
 
     for (0..inputs.shape.row) |r| {
-        std.debug.print("{d} ^ {d} = {d}, {f}", .{
-            inputs.at(r, 0),
-            inputs.at(r, 1),
-            targets.at(r, 0),
-            nn.predict(arena, inputs.row_view(r)),
-        });
+        _ = nn.predict(arena, inputs.row_view(r));
+        // std.debug.print("{d} ^ {d} = {d}, {f}", .{
+        //     inputs.at(r, 0),
+        //     inputs.at(r, 1),
+        //     targets.at(r, 0),
+        //     nn.predict(arena, inputs.row_view(r)),
+        // });
     }
 }
