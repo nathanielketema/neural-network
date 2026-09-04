@@ -4,17 +4,15 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const nn_mod = b.addModule("neural_network", .{
-        .root_source_file = b.path("src/neural_network.zig"),
+    const mod = b.addModule("znn", .{
+        .root_source_file = b.path("src/znn.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const nn_test = b.addTest(.{
-        .root_module = nn_mod,
-    });
-    const run_nn_test = b.addRunArtifact(nn_test);
+    const mod_test = b.addTest(.{ .root_module = mod });
+    const mod_test_run = b.addRunArtifact(mod_test);
 
-    const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_nn_test.step);
+    const mod_test_step = b.step("test", "Run tests");
+    mod_test_step.dependOn(&mod_test_run.step);
 }
