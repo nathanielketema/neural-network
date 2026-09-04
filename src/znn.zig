@@ -5,7 +5,7 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub const mtx = @import("matrix.zig");
-pub const Matrix = mtx.Matrix;
+const Matrix = mtx.Matrix;
 
 pub const NN = struct {
     weights: []Matrix,
