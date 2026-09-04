@@ -4,10 +4,10 @@ const testing = std.testing;
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-pub const matrix = @import("matrix.zig");
-const Matrix = matrix.Matrix;
+pub const mtx = @import("matrix.zig");
+pub const Matrix = mtx.Matrix;
 
-pub const ZNN = struct {
+pub const NN = struct {
     weights: []Matrix,
     biases: []Matrix,
     deltas: []Matrix,
@@ -19,19 +19,19 @@ pub const ZNN = struct {
         relu,
         sigmoid,
 
-        pub fn apply(activation_fn: Activation, mtx: *Matrix) void {
+        pub fn apply(activation_fn: Activation, matrix: *Matrix) void {
             return switch (activation_fn) {
                 .relu => {
-                    for (0..mtx.shape.row) |r| {
-                        for (0..mtx.shape.col) |c| {
-                            mtx.ptr(r, c).* = relu_fn(mtx.at(r, c));
+                    for (0..matrix.shape.row) |r| {
+                        for (0..matrix.shape.col) |c| {
+                            matrix.ptr(r, c).* = relu_fn(matrix.at(r, c));
                         }
                     }
                 },
                 .sigmoid => {
-                    for (0..mtx.shape.row) |r| {
-                        for (0..mtx.shape.col) |c| {
-                            mtx.ptr(r, c).* = sigmoid_fn(mtx.at(r, c));
+                    for (0..matrix.shape.row) |r| {
+                        for (0..matrix.shape.col) |c| {
+                            matrix.ptr(r, c).* = sigmoid_fn(matrix.at(r, c));
                         }
                     }
                 },
@@ -59,7 +59,7 @@ pub const ZNN = struct {
         architecture: []const u16,
         activation_fn: Activation = .sigmoid,
         random: std.Random,
-    }) !ZNN {
+    }) !NN {
         for (options.architecture) |neurons| assert(neurons > 0);
         assert(options.architecture.len >= 2);
 
@@ -95,7 +95,7 @@ pub const ZNN = struct {
             .col = options.architecture[edge_count],
         });
 
-        var nn: ZNN = .{
+        var nn: NN = .{
             .weights = weights,
             .biases = biases,
             .activations = activations,
@@ -107,16 +107,16 @@ pub const ZNN = struct {
         return nn;
     }
 
-    pub fn deinit(nn: *ZNN) void {
+    pub fn deinit(nn: *NN) void {
         nn.arena.deinit();
     }
 
-    pub fn fill_rand(nn: *ZNN, random: std.Random) void {
+    pub fn fill_rand(nn: *NN, random: std.Random) void {
         for (nn.weights) |*wght| wght.fill_random(random);
         for (nn.biases) |*bias| bias.fill(0);
     }
 
-    fn format(nn: ZNN, writer: *Io.Writer) !void {
+    fn format(nn: NN, writer: *Io.Writer) !void {
         try writer.print("  weights = {{\n", .{});
         for (nn.weights, 0..) |wght, i| {
             if (i > 0) try writer.print("\n", .{});
@@ -140,7 +140,7 @@ pub const ZNN = struct {
     }
 
     pub fn train(
-        nn: *ZNN,
+        nn: *NN,
         inputs: Matrix,
         targets: Matrix,
         options: struct { alpha: f32, epoch: usize },
@@ -158,7 +158,7 @@ pub const ZNN = struct {
         }
     }
 
-    pub fn predict(nn: *ZNN, gpa: Allocator, input: Matrix) Matrix {
+    pub fn predict(nn: *NN, gpa: Allocator, input: Matrix) Matrix {
         nn.forward(input);
         const final = nn.activations[nn.activations.len - 1];
 
@@ -170,7 +170,7 @@ pub const ZNN = struct {
         return predicted;
     }
 
-    fn forward(nn: *ZNN, training_input: Matrix) void {
+    fn forward(nn: *NN, training_input: Matrix) void {
         nn.activations[0].copy(training_input);
         for (0..nn.weights.len) |i| {
             nn.activations[i + 1].mul_into(
@@ -182,7 +182,7 @@ pub const ZNN = struct {
         }
     }
 
-    fn backward(nn: *ZNN, training_target: Matrix) void {
+    fn backward(nn: *NN, training_target: Matrix) void {
         const output_index = nn.activations.len - 1;
         var output_layer = nn.activations[output_index];
 
@@ -223,7 +223,7 @@ pub const ZNN = struct {
         }
     }
 
-    fn learn(nn: *ZNN, alpha: f32) void {
+    fn learn(nn: *NN, alpha: f32) void {
         for (0..nn.weights.len) |i| {
             for (0..nn.weights[i].shape.row) |r| {
                 for (0..nn.weights[i].shape.col) |c| {
@@ -245,7 +245,7 @@ test "smoke" {
     var prng: std.Random.DefaultPrng = .init(67);
     const random = prng.random();
 
-    var nn: ZNN = try .init(testing.allocator, .{
+    var nn: NN = try .init(testing.allocator, .{
         .architecture = &.{ 2, 3, 1 },
         .random = random,
     });
@@ -269,7 +269,7 @@ test "xor" {
     var xor_matrix: Matrix = .init_from_slice(arena, &xor, .{ .row = 4, .col = 3 });
     var inputs = xor_matrix.copy_cols(.{ .col_count = 2 });
     const targets = xor_matrix.copy_cols(.{ .col_count = 1, .start = 2 });
-    var nn = try ZNN.init(gpa, .{
+    var nn = try NN.init(gpa, .{
         .architecture = &.{ 2, 2, 1 },
         .activation_fn = .sigmoid,
         .random = random,
