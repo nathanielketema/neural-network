@@ -62,9 +62,9 @@ pub const NN = struct {
         activation_fn: Activation = .sigmoid,
         random: std.Random,
     }) NN {
-        for (options.architecture) |neurons| assert(neurons > 0);
         assert(options.architecture.len >= 2);
         assert(options.architecture.len <= max_layers);
+        for (options.architecture) |neurons| assert(neurons > 0);
 
         var arena_instance: std.heap.ArenaAllocator = .init(gpa);
         errdefer arena_instance.deinit();
