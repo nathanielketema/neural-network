@@ -4,8 +4,10 @@ const testing = std.testing;
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
+const fatal = @import("fatal.zig").fatal;
 pub const mtx = @import("matrix.zig");
 const Matrix = mtx.Matrix;
+const oom = @import("fatal.zig").oom;
 
 pub const NN = struct {
     weights: []Matrix,
@@ -73,10 +75,10 @@ pub const NN = struct {
         const layer_count = options.architecture.len;
         const edge_count = layer_count - 1;
 
-        const weights = arena.alloc(Matrix, edge_count) catch mtx.oom();
-        const biases = arena.alloc(Matrix, edge_count) catch mtx.oom();
-        const deltas = arena.alloc(Matrix, edge_count) catch mtx.oom();
-        const activations = arena.alloc(Matrix, layer_count) catch mtx.oom();
+        const weights = arena.alloc(Matrix, edge_count) catch |err| oom(err);
+        const biases = arena.alloc(Matrix, edge_count) catch |err| oom(err);
+        const deltas = arena.alloc(Matrix, edge_count) catch |err| oom(err);
+        const activations = arena.alloc(Matrix, layer_count) catch |err| oom(err);
 
         for (0..edge_count) |i| {
             activations[i] = .init(arena, .{
@@ -271,8 +273,8 @@ test "xor" {
         1, 1, 0,
     };
     var xor_matrix: Matrix = .init_from_slice(arena, &xor, .{ .row = 4, .col = 3 });
-    var inputs = xor_matrix.copy_cols(.{ .col_count = 2 });
-    const targets = xor_matrix.copy_cols(.{ .col_count = 1, .start = 2 });
+    var inputs = xor_matrix.copy_cols(arena, .{ .col_count = 2 });
+    const targets = xor_matrix.copy_cols(arena, .{ .col_count = 1, .start = 2 });
     var nn: NN = .init(gpa, .{
         .architecture = &.{ 2, 2, 1 },
         .activation_fn = .sigmoid,

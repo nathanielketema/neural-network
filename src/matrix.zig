@@ -5,17 +5,18 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const mulWide = std.math.mulWide;
 
+const fatal = @import("fatal.zig").fatal;
+const oom = @import("fatal.zig").oom;
+
 const Self = @This();
 
-/// Matrix dimensions are capped at `2^16 - 1`
 pub const Matrix = struct {
     data: []f32,
     shape: Shape,
-    stride: usize,
-    gpa: Allocator,
+    stride: u16,
 
     comptime {
-        assert(@sizeOf(Matrix) == 48);
+        assert(@sizeOf(Matrix) == 24);
     }
 
     pub const Shape = struct {
@@ -37,18 +38,19 @@ pub const Matrix = struct {
     };
 
     /// Caller owns the returned matrix and must call deinit(gpa).
+    ///
+    /// Matrix zeros memory.
     pub fn init(gpa: Allocator, shape: Shape) Matrix {
         assert(shape.row > 0);
         assert(shape.col > 0);
 
-        const data = gpa.alloc(f32, mulWide(u16, shape.row, shape.col)) catch oom();
+        const data = gpa.alloc(f32, mulWide(u16, shape.row, shape.col)) catch |err| oom(err);
         @memset(data, 0);
 
         return .{
             .data = data,
             .shape = shape,
             .stride = shape.col,
-            .gpa = gpa,
         };
     }
 
@@ -63,9 +65,9 @@ pub const Matrix = struct {
         return matrix;
     }
 
-    pub fn deinit(matrix: *Matrix) void {
+    pub fn deinit(matrix: *Matrix, gpa: Allocator) void {
         matrix.assert_matrix();
-        matrix.gpa.free(matrix.data);
+        gpa.free(matrix.data);
         matrix.* = undefined;
     }
 
@@ -128,14 +130,13 @@ pub const Matrix = struct {
                 .col = source.shape.col,
             },
             .stride = source.stride,
-            .gpa = source.gpa,
         };
     }
 
-    pub fn copy_row(source: Matrix, row: usize) Matrix {
+    /// Caller owns the returned matrix and must call deinit(gpa).
+    pub fn copy_row(source: Matrix, gpa: Allocator, row: usize) Matrix {
         source.assert_matrix();
         assert(row < source.shape.row);
-        const gpa = source.gpa;
 
         var target: Matrix = .init(gpa, .{
             .row = 1,
@@ -153,10 +154,10 @@ pub const Matrix = struct {
         return target;
     }
 
-    pub fn copy_cols(source: Matrix, options: SubmatrixOptions) Matrix {
+    /// Caller owns the returned matrix and must call deinit(gpa).
+    pub fn copy_cols(source: Matrix, gpa: Allocator, options: SubmatrixOptions) Matrix {
         source.assert_matrix();
         options.validate(source.shape.col);
-        const gpa = source.gpa;
 
         var target: Matrix = .init(gpa, .{
             .row = source.shape.row,
@@ -176,7 +177,7 @@ pub const Matrix = struct {
         return target;
     }
 
-    pub fn transpose_into(target: *Matrix, source: Matrix) void {
+    pub fn transpose(target: *Matrix, source: Matrix) void {
         source.assert_matrix();
         target.assert_matrix();
         assert(target.shape.row == source.shape.col);
@@ -189,9 +190,9 @@ pub const Matrix = struct {
         }
     }
 
-    pub fn transpose(source: Matrix) Matrix {
+    /// Caller owns the returned matrix and must call deinit(gpa).
+    pub fn copy_transpose(source: Matrix, gpa: Allocator) Matrix {
         source.assert_matrix();
-        const gpa = source.gpa;
 
         var target: Matrix = .init(gpa, .{
             .row = source.shape.col,
@@ -199,31 +200,59 @@ pub const Matrix = struct {
         });
         errdefer target.deinit();
 
-        target.transpose_into(source);
+        target.transpose(source);
         return target;
     }
 
-    pub fn fill(matrix: *Matrix, number: f32) void {
-        matrix.assert_matrix();
-        for (0..matrix.shape.row) |r| {
-            const lo = r * matrix.stride;
-            const hi = lo + matrix.shape.col;
-            @memset(matrix.data[lo..hi], number);
+    /// Caller owns the returned matrix and must call deinit(gpa).
+    pub fn copy_fill(source: Matrix, gpa: Allocator, number: f32) Matrix {
+        source.assert_matrix();
+
+        var target: Matrix = .init(gpa, .{
+            .row = source.shape.row,
+            .col = source.shape.col,
+        });
+        errdefer target.deinit();
+
+        target.fill(number);
+        return target;
+    }
+
+    pub fn fill(source: *Matrix, number: f32) void {
+        source.assert_matrix();
+        for (0..source.shape.row) |r| {
+            const lo = r * source.stride;
+            const hi = lo + source.shape.col;
+            @memset(source.data[lo..hi], number);
         }
     }
 
-    pub fn fill_random(matrix: *Matrix, random: std.Random) void {
-        matrix.assert_matrix();
-        for (0..matrix.shape.row) |r| {
-            const lo = r * matrix.stride;
-            const hi = lo + matrix.shape.col;
-            for (matrix.data[lo..hi]) |*value| {
+    /// Caller owns the returned matrix and must call deinit(gpa).
+    pub fn copy_fill_random(source: Matrix, gpa: Allocator, random: std.Random) Matrix {
+        source.assert_matrix();
+
+        var target: Matrix = .init(gpa, .{
+            .row = source.shape.row,
+            .col = source.shape.col,
+        });
+        errdefer target.deinit();
+
+        target.fill_random(random);
+        return target;
+    }
+
+    pub fn fill_random(source: *Matrix, random: std.Random) void {
+        source.assert_matrix();
+        for (0..source.shape.row) |r| {
+            const lo = r * source.stride;
+            const hi = lo + source.shape.col;
+            for (source.data[lo..hi]) |*value| {
                 value.* = random.float(f32);
             }
         }
     }
 
-    pub fn scale_into(target: *Matrix, source: Matrix, scalar: f32) void {
+    pub fn scale(target: *Matrix, source: Matrix, scalar: f32) void {
         source.assert_matrix();
         target.assert_matrix();
         assert(target.shape.row == source.shape.row);
@@ -236,19 +265,15 @@ pub const Matrix = struct {
         }
     }
 
-    pub fn scale(matrix: Matrix, scalar: f32) Matrix {
+    /// Caller owns the returned matrix and must call deinit(gpa).
+    pub fn copy_scale(matrix: Matrix, gpa: Allocator, scalar: f32) Matrix {
         matrix.assert_matrix();
-        const gpa = matrix.gpa;
 
         var result: Matrix = .init(gpa, matrix.shape);
         errdefer result.deinit();
 
-        result.scale_into(matrix, scalar);
+        result.scale(matrix, scalar);
         return result;
-    }
-
-    pub fn add(mt1: Matrix, mt2: Matrix) Matrix {
-        return Self.add(mt1.gpa, mt1, mt2);
     }
 
     pub fn add_into(res: *Matrix, mt1: Matrix, mt2: Matrix) void {
@@ -267,10 +292,6 @@ pub const Matrix = struct {
         }
     }
 
-    pub fn sub(mt1: Matrix, mt2: Matrix) Matrix {
-        return Self.sub(mt1.gpa, mt1, mt2);
-    }
-
     pub fn sub_into(res: *Matrix, mt1: Matrix, mt2: Matrix) void {
         res.assert_matrix();
         mt1.assert_matrix();
@@ -285,10 +306,6 @@ pub const Matrix = struct {
                 res.ptr(r, c).* = mt1.at(r, c) - mt2.at(r, c);
             }
         }
-    }
-
-    pub fn mul(mt1: Matrix, mt2: Matrix) Matrix {
-        return Self.mul(mt1.gpa, mt1, mt2);
     }
 
     pub fn mul_into(res: *Matrix, mt1: Matrix, mt2: Matrix) void {
@@ -324,6 +341,7 @@ pub const Matrix = struct {
     }
 };
 
+/// Caller owns the returned matrix and must call deinit(gpa).
 pub fn add(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
     mt1.assert_matrix();
     mt2.assert_matrix();
@@ -336,6 +354,7 @@ pub fn add(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
     return res;
 }
 
+/// Caller owns the returned matrix and must call deinit(gpa).
 pub fn sub(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
     mt1.assert_matrix();
     mt2.assert_matrix();
@@ -348,6 +367,7 @@ pub fn sub(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
     return res;
 }
 
+/// Caller owns the returned matrix and must call deinit(gpa).
 pub fn mul(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
     mt1.assert_matrix();
     mt2.assert_matrix();
@@ -360,15 +380,6 @@ pub fn mul(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
     errdefer res.deinit();
     res.mul_into(mt1, mt2);
     return res;
-}
-
-pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.print(fmt, args);
-    std.process.exit(1);
-}
-
-pub fn oom() noreturn {
-    fatal("oom\n", .{});
 }
 
 fn expect_approx_slices(comptime T: type, expected: []const T, actual: []const T) !void {
@@ -387,24 +398,12 @@ fn expect_approx_slices(comptime T: type, expected: []const T, actual: []const T
     }
 }
 
-fn create_matrix(gpa: Allocator, size: Matrix.Shape, num_fill: ?f32, random: ?std.Random) Matrix {
-    var matrix: Matrix = .init(gpa, size);
-    errdefer matrix.deinit();
-
-    if (num_fill) |num| {
-        matrix.fill(num);
-    } else matrix.fill_random(random.?);
-
-    return matrix;
-}
-
 test "init matrix" {
-    const gpa = testing.allocator;
-    var matrix: Matrix = .init(gpa, .{
+    var matrix: Matrix = .init(testing.allocator, .{
         .row = 3,
         .col = 4,
     });
-    defer matrix.deinit();
+    defer matrix.deinit(testing.allocator);
     matrix.fill(2);
 
     try testing.expectEqual(3, matrix.shape.row);
@@ -423,7 +422,7 @@ test "fill_random produces varying values" {
         .row = 4,
         .col = 4,
     });
-    defer matrix.deinit();
+    defer matrix.deinit(gpa);
 
     matrix.fill_random(random);
     var all_equal = true;
@@ -441,9 +440,11 @@ test "smoke test" {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const mt1 = create_matrix(arena, .{ .row = 3, .col = 3 }, 4, null);
-    const mt2 = create_matrix(arena, .{ .row = 3, .col = 3 }, 2, null);
-    const mt1_scaled = mt1.scale(2);
+    var mt1: Matrix = .init(arena, .{ .row = 3, .col = 3 });
+    var mt2: Matrix = .init(arena, .{ .row = 3, .col = 3 });
+    mt1.fill(4);
+    mt2.fill(2);
+    const mt1_scaled = mt1.copy_scale(arena, 2);
 
     for (0..3) |r| {
         for (0..3) |c| {
@@ -454,44 +455,45 @@ test "smoke test" {
     const sum = add(arena, mt1, mt2);
     const diff = sub(arena, mt1, mt2);
     const prod = mul(arena, mt1, mt2);
-    const mt1_row_vector = mt1.copy_row(2);
-    const mt1_submatrix = mt1.copy_cols(.{ .col_count = 2 });
-    const mt1_transpose = mt1.transpose();
+    const mt1_row_vector = mt1.copy_row(arena, 2);
+    const mt1_submatrix = mt1.copy_cols(arena, .{ .col_count = 2 });
+    const mt1_transpose = mt1.copy_transpose(arena);
 
+    var mtx_test: Matrix = .init(arena, .{ .row = 3, .col = 3 });
     try expect_approx_slices(
         f32,
         mt1_scaled.data,
-        create_matrix(arena, .{ .row = 3, .col = 3 }, 8, null).data,
+        mtx_test.copy_fill(arena, 8).data,
     );
     try expect_approx_slices(
         f32,
         sum.data,
-        create_matrix(arena, .{ .row = 3, .col = 3 }, 6, null).data,
+        mtx_test.copy_fill(arena, 6).data,
     );
     try expect_approx_slices(
         f32,
         diff.data,
-        create_matrix(arena, .{ .row = 3, .col = 3 }, 2, null).data,
+        mtx_test.copy_fill(arena, 2).data,
     );
     try expect_approx_slices(
         f32,
         prod.data,
-        create_matrix(arena, .{ .row = 3, .col = 3 }, 24, null).data,
+        mtx_test.copy_fill(arena, 24).data,
     );
     try expect_approx_slices(
         f32,
         mt1_row_vector.data,
-        create_matrix(arena, .{ .row = 1, .col = 3 }, 4, null).data,
+        Matrix.init(arena, .{.row = 1, .col = 3}).copy_fill(arena, 4).data,
     );
     try expect_approx_slices(
         f32,
         mt1_submatrix.data,
-        create_matrix(arena, .{ .row = 3, .col = 2 }, 4, null).data,
+        Matrix.init(arena, .{.row = 3, .col = 2}).copy_fill(arena, 4).data,
     );
     try expect_approx_slices(
         f32,
         mt1_transpose.data,
-        create_matrix(arena, .{ .row = 3, .col = 3 }, 4, null).data,
+        mtx_test.copy_fill(arena, 4).data,
     );
 
     var data = [_]f32{
@@ -502,14 +504,14 @@ test "smoke test" {
     };
     const matrix: Matrix = .init_from_slice(arena, &data, .{ .row = 4, .col = 3 });
 
-    const matrix_row = matrix.copy_row(2);
+    const matrix_row = matrix.copy_row(arena, 2);
     try expect_approx_slices(
         f32,
         matrix_row.data,
         &.{ 1, 0, 0 },
     );
 
-    const matrix_cols = matrix.copy_cols(.{ .col_count = 2, .stride = 2 });
+    const matrix_cols = matrix.copy_cols(arena, .{ .col_count = 2, .stride = 2 });
     try expect_approx_slices(
         f32,
         matrix_cols.data,
@@ -531,9 +533,12 @@ test "property based fuzzing" {
                 const row = smith.value(u16) % 8 + 1;
                 const col = smith.value(u16) % 8 + 1;
 
-                const A = create_matrix(arena, .{ .row = row, .col = col }, null, random);
-                const B = create_matrix(arena, .{ .row = row, .col = col }, null, random);
-                const C = create_matrix(arena, .{ .row = row, .col = col }, null, random);
+                var A: Matrix = .init(arena, .{ .row = row, .col = col });
+                var B: Matrix = .init(arena, .{ .row = row, .col = col });
+                var C: Matrix = .init(arena, .{ .row = row, .col = col });
+                A.fill_random(random);
+                B.fill_random(random);
+                C.fill_random(random);
 
                 // For mul
                 const m = smith.value(u16) % 8 + 1;
@@ -541,68 +546,75 @@ test "property based fuzzing" {
                 const p = smith.value(u16) % 8 + 1;
                 const q = smith.value(u16) % 8 + 1;
 
-                const D = create_matrix(arena, .{ .row = m, .col = n }, null, random);
-                const E = create_matrix(arena, .{ .row = n, .col = p }, null, random);
-                const F = create_matrix(arena, .{ .row = p, .col = q }, null, random);
+                var D: Matrix = .init(arena, .{ .row = m, .col = n });
+                var E: Matrix = .init(arena, .{ .row = n, .col = p });
+                var F: Matrix = .init(arena, .{ .row = p, .col = q });
+                D.fill_random(random);
+                E.fill_random(random);
+                F.fill_random(random);
 
                 // A + B = B + A
                 try expect_approx_slices(
                     f32,
-                    A.add(B).data,
-                    B.add(A).data,
+                    add(arena, A, B).data,
+                    add(arena, B, A).data,
                 );
 
                 // A + (B + C) = (A + B) + C
                 try expect_approx_slices(
                     f32,
-                    A.add(.add(B, C)).data,
-                    Matrix.add(.add(A, B), C).data,
+                    add(arena, A, add(arena, B, C)).data,
+                    add(arena, add(arena, A, B), C).data,
                 );
 
                 // (DE)F = D(EF)
                 try expect_approx_slices(
                     f32,
-                    Matrix.mul(.mul(D, E), F).data,
-                    D.mul(.mul(E, F)).data,
-                );
-
-                // X(Y + Z) = XY + XZ
-                const X = create_matrix(arena, .{ .row = row, .col = row }, null, random);
-                const Y = create_matrix(arena, .{ .row = row, .col = row }, null, random);
-                const Z = create_matrix(arena, .{ .row = row, .col = row }, null, random);
-                try expect_approx_slices(
-                    f32,
-                    X.mul(.add(Y, Z)).data,
-                    Matrix.add(X.mul(Y), X.mul(Z)).data,
+                    mul(arena, mul(arena, D, E), F).data,
+                    mul(arena, D, mul(arena, E, F)).data,
                 );
 
                 // (A^T)^T = A
                 try expect_approx_slices(
                     f32,
-                    A.transpose().transpose().data,
+                    A.copy_transpose(arena).copy_transpose(arena).data,
                     A.data,
                 );
 
                 // (A + B)^T = A^T + B^T
                 try expect_approx_slices(
                     f32,
-                    Matrix.add(A, B).transpose().data,
-                    Matrix.add(A.transpose(), B.transpose()).data,
+                    add(arena, A, B).copy_transpose(arena).data,
+                    add(arena, A.copy_transpose(arena), B.copy_transpose(arena)).data,
                 );
 
                 // (DE)^T = (E^T)(D^T)
                 try expect_approx_slices(
                     f32,
-                    Matrix.mul(D, E).transpose().data,
-                    Matrix.mul(E.transpose(), D.transpose()).data,
+                    mul(arena, D, E).copy_transpose(arena).data,
+                    mul(arena, E.copy_transpose(arena), D.copy_transpose(arena)).data,
                 );
 
                 // r(A)^T = (rA)^T
                 const r = smith.value(u8);
                 try expect_approx_slices(
                     f32,
-                    Matrix.scale(A.transpose(), r).data,
-                    Matrix.transpose(A.scale(r)).data,
+                    A.copy_transpose(arena).copy_scale(arena, r).data,
+                    A.copy_scale(arena, r).copy_transpose(arena).data,
+                );
+
+                var X: Matrix = .init(arena, .{ .row = row, .col = row });
+                var Y: Matrix = .init(arena, .{ .row = row, .col = row });
+                var Z: Matrix = .init(arena, .{ .row = row, .col = row });
+                X.fill_random(random);
+                Y.fill_random(random);
+                Z.fill_random(random);
+
+                // X(Y + Z) = XY + XZ
+                try expect_approx_slices(
+                    f32,
+                    mul(arena, X, add(arena, Y, Z)).data,
+                    add(arena, mul(arena, X, Y), mul(arena, X, Z)).data,
                 );
             }
         }
