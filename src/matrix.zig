@@ -362,12 +362,12 @@ pub fn mul(gpa: Allocator, mt1: Matrix, mt2: Matrix) Matrix {
     return res;
 }
 
-fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
+pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
     std.debug.print(fmt, args);
     std.process.exit(1);
 }
 
-fn oom() noreturn {
+pub fn oom() noreturn {
     fatal("oom\n", .{});
 }
 
