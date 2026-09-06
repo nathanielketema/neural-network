@@ -38,6 +38,8 @@ pub const Matrix = struct {
     };
 
     /// Caller owns the returned matrix and must call deinit(gpa).
+    /// 
+    /// This function will panic and exit on OutOfMemory
     ///
     /// Matrix zeros memory.
     pub fn init(gpa: Allocator, shape: Shape) Matrix {

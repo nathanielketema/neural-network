@@ -58,7 +58,8 @@ pub const NN = struct {
         }
     };
 
-    // Caller must free memory by calling deinit()
+    /// Caller must free memory by calling deinit()
+    /// This function will panic and exit on OutOfMemory
     pub fn init(gpa: Allocator, options: struct {
         architecture: []const u16,
         activation_fn: Activation = .sigmoid,
